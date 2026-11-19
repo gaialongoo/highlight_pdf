@@ -147,6 +147,12 @@ async function renderPage(p) {
     const layer = new pdfjsLib.TextLayer({ textContentSource: page.streamTextContent(), container: tl, viewport: vp });
     await layer.render();
     if (doc !== state.doc || scale !== state.scale) { return; }
+    // come nel visualizzatore di pdf.js: un blocco "fine contenuto" che, durante la
+    // selezione, copre i vuoti tra le righe e impedisce che la selezione salti
+    // fino alla fine del documento quando il mouse passa su uno spazio vuoto
+    const eoc = document.createElement('div');
+    eoc.className = 'endOfContent';
+    tl.appendChild(eoc);
     p.div.querySelectorAll('canvas, .textLayer').forEach(el => el.remove());
     p.div.insertBefore(canvas, p.overlay);
     p.div.appendChild(tl);
@@ -266,7 +272,7 @@ function mergeLines(rects) {
 
 function drawOverlays() {
   state.pages.forEach(p => p.overlay && p.overlay.replaceChildren());
-  for (const o of state.overlays) {
+  for (const o of [...state.overlays, ...searchOverlays()]) {
     for (const r of o.rects) {
       const p = state.pages[r.page - 1];
       if (!p || !p.overlay) { continue; }
@@ -279,6 +285,7 @@ function drawOverlays() {
       d.style.height = `${((r.y1 - r.y0) / p.h) * 100}%`;
       if (o.hex) { d.style.background = '#' + o.hex; }
       d.title = o.kind === 'pending' ? 'In attesa di compilazione' : '';
+      if (o.kind.startsWith('search')) { d.style.background = ''; }
       p.overlay.appendChild(d);
     }
   }
@@ -386,6 +393,7 @@ function placePopup(el, cx, top, bottom) {
 }
 
 function hide(el) { el.classList.add('hidden'); }
+function show(el) { el.classList.remove('hidden'); }
 
 // ---------------------------------------------------------------------------
 // Clic su un'evidenziazione già compilata: riconosciuta dal colore dei pixel
@@ -478,6 +486,58 @@ function showHighlightMenu(hit, clientX, clientY, hex) {
 // Eventi
 // ---------------------------------------------------------------------------
 
+// --- selezione stabile (stessa tecnica del visualizzatore ufficiale di pdf.js) ---
+let prevRange = null;
+function resetEndOfContent() {
+  document.querySelectorAll('.textLayer.selecting').forEach(t => t.classList.remove('selecting'));
+  document.querySelectorAll('.textLayer').forEach(t => {
+    const eoc = t.querySelector('.endOfContent');
+    if (eoc && eoc !== t.lastElementChild) { eoc.style.width = ''; eoc.style.height = ''; t.appendChild(eoc); }
+  });
+  prevRange = null;
+}
+document.addEventListener('pointerdown', e => {
+  const tl = e.target instanceof Element ? e.target.closest('.textLayer') : null;
+  if (tl) { tl.classList.add('selecting'); }
+});
+document.addEventListener('pointerup', resetEndOfContent);
+window.addEventListener('blur', resetEndOfContent);
+document.addEventListener('selectionchange', () => {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount || sel.isCollapsed) { if (!document.querySelector('.textLayer.selecting')) { prevRange = null; } return; }
+  const range = sel.getRangeAt(0);
+  // si sta muovendo l'inizio o la fine della selezione?
+  const modifyStart = prevRange && (range.compareBoundaryPoints(Range.END_TO_END, prevRange) === 0
+    || range.compareBoundaryPoints(Range.START_TO_END, prevRange) === 0);
+  let anchor = modifyStart ? range.startContainer : range.endContainer;
+  if (anchor.nodeType === Node.TEXT_NODE) { anchor = anchor.parentNode; }
+  const tl = anchor instanceof Element ? anchor.closest('.textLayer') : null;
+  if (tl) {
+    tl.classList.add('selecting');
+    const eoc = tl.querySelector('.endOfContent');
+    // il blocco va subito dopo il punto che si sta trascinando: i vuoti oltre
+    // quel punto "appartengono" lì e la selezione non scappa in avanti
+    if (eoc && anchor !== tl && anchor.parentElement) {
+      eoc.style.width = tl.style.width; eoc.style.height = tl.style.height;
+      anchor.parentElement.insertBefore(eoc, modifyStart ? anchor : anchor.nextSibling);
+    }
+  }
+  prevRange = range.cloneRange();
+});
+
+/**
+ * Selezione "scappata": comprende pagine fuori da quelle dove hai premuto e
+ * rilasciato il mouse, o è enorme. Non va evidenziata.
+ */
+function runawaySelection(s, downPt, upPt) {
+  if (s.text.length > 4000) { return true; }
+  const pd = downPt && pageAt(downPt.x, downPt.y)?.p.num;
+  const pu = upPt && pageAt(upPt.x, upPt.y)?.p.num;
+  if (!pd || !pu) { return false; }
+  const lo = Math.min(pd, pu), hi = Math.max(pd, pu);
+  return s.rects.some(r => r.page < lo || r.page > hi);
+}
+
 let downAt = null;
 viewer.addEventListener('mousedown', e => {
   downAt = { x: e.clientX, y: e.clientY };
@@ -487,9 +547,16 @@ viewer.addEventListener('mousedown', e => {
 
 viewer.addEventListener('mouseup', e => {
   if (e.button !== 0) { return; }
-  const moved = downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 3;
+  // meno sensibile: un clic con una piccola sbavatura non è una selezione
+  const moved = downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 6;
+  const down = downAt, up = { x: e.clientX, y: e.clientY };
   setTimeout(() => {
     const s = captureSelection();
+    if (s && (moved || e.detail >= 2) && runawaySelection(s, down, up)) {
+      window.getSelection().removeAllRanges();
+      toast('Selezione scappata oltre il punto dove hai lasciato il mouse: non la evidenzio. Riprova.');
+      return;
+    }
     if (s && (moved || e.detail >= 2)) {
       state.lastSelection = s;
       if (state.highlighterMode) { doHighlight(s); } else { showFloating(s); }
@@ -521,7 +588,199 @@ viewer.addEventListener('wheel', e => {
   setZoom(state.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
 }, { passive: false });
 
+// ---------------------------------------------------------------------------
+// Annulla / ripeti
+// ---------------------------------------------------------------------------
+
+$('undoBtn').onclick = () => vscode.postMessage({ type: 'undo' });
+$('redoBtn').onclick = () => vscode.postMessage({ type: 'redo' });
+
+function renderHistory(h) {
+  $('undoBtn').disabled = !h.canUndo;
+  $('redoBtn').disabled = !h.canRedo;
+  $('undoBtn').title = h.canUndo ? `Annulla ${h.undoLabel} (Ctrl+Z)` : 'Niente da annullare';
+  $('redoBtn').title = h.canRedo ? `Ripeti ${h.redoLabel} (Ctrl+Y)` : 'Niente da ripetere';
+}
+
+// ---------------------------------------------------------------------------
+// Cerca nel PDF
+// ---------------------------------------------------------------------------
+
+const search = { query: '', matches: [], cur: -1, index: null, indexDoc: null, timer: 0 };
+
+/** minuscole, senza accenti né legature; restituisce anche la mappa verso l'originale */
+function foldWithMap(s) {
+  let out = '';
+  const map = [];
+  for (let i = 0; i < s.length; i++) {
+    const f = s[i].normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    for (const ch of f) { out += ch; map.push(i); }
+  }
+  return { out, map };
+}
+
+/** Testo di ogni pagina, con per ogni carattere l'elemento pdf.js da cui viene. */
+async function buildIndex() {
+  if (search.index && search.indexDoc === state.doc) { return search.index; }
+  const doc = state.doc;
+  const pages = [];
+  for (let n = 1; n <= doc.numPages; n++) {
+    const page = await doc.getPage(n);
+    const vp = page.getViewport({ scale: 1 });
+    const tc = await page.getTextContent();
+    let text = '';
+    const owner = []; // per carattere: [indice elemento, posizione nell'elemento] o null (spazio aggiunto)
+    const items = [];
+    for (const it of tc.items) {
+      if (typeof it.str !== 'string') { continue; }
+      const k = items.length;
+      items.push(it);
+      for (let j = 0; j < it.str.length; j++) {
+        const c = /\s/.test(it.str[j]) ? ' ' : it.str[j];
+        if (c === ' ' && text.endsWith(' ')) { continue; }
+        text += c; owner.push([k, j]);
+      }
+      if ((it.hasEOL || it.str) && !text.endsWith(' ')) {
+        // a fine riga una parola sillabata ("funzio-") si unisce alla successiva
+        if (it.hasEOL && text.endsWith('-')) { text = text.slice(0, -1); owner.pop(); }
+        else { text += ' '; owner.push(null); }
+      }
+    }
+    const { out, map } = foldWithMap(text);
+    pages.push({ n, vp, items, text, owner, folded: out, fmap: map });
+  }
+  if (doc !== state.doc) { return buildIndex(); }
+  search.index = pages; search.indexDoc = doc;
+  return pages;
+}
+
+/** Rettangoli (unità pagina, scala 1) dei caratteri [a, b) del testo di una pagina. */
+function rectsFor(pg, a, b) {
+  const byItem = new Map();
+  for (let i = a; i < b; i++) {
+    const o = pg.owner[i];
+    if (!o) { continue; }
+    const [k, j] = o;
+    const r = byItem.get(k) ?? { k, from: j, to: j + 1 };
+    r.from = Math.min(r.from, j); r.to = Math.max(r.to, j + 1);
+    byItem.set(k, r);
+  }
+  const rects = [];
+  for (const { k, from, to } of byItem.values()) {
+    const it = pg.items[k];
+    const tx = pdfjsLib.Util.transform(pg.vp.transform, it.transform);
+    const h = Math.hypot(tx[2], tx[3]) || 10;
+    const len = it.str.length || 1;
+    const w = it.width; // a scala 1 le unità coincidono
+    const x = tx[4];
+    rects.push({ page: pg.n, x0: x + w * from / len, x1: x + w * to / len, y0: tx[5] - h * 0.85, y1: tx[5] + h * 0.2 });
+  }
+  return mergeLines(rects);
+}
+
+async function runSearch(keepPosition = false) {
+  const q = foldWithMap($('searchInput').value.trim().replace(/\s+/g, ' ')).out;
+  search.query = q;
+  const prevPage = search.matches[search.cur]?.page;
+  search.matches = []; search.cur = -1;
+  if (!q || !state.doc) { renderSearch(); drawOverlays(); return; }
+  const pages = await buildIndex();
+  if (q !== search.query) { return; } // nel frattempo l'utente ha scritto altro
+  for (const pg of pages) {
+    for (let i = pg.folded.indexOf(q); i >= 0; i = pg.folded.indexOf(q, i + 1)) {
+      const a = pg.fmap[i], b = pg.fmap[i + q.length - 1] + 1;
+      search.matches.push({ page: pg.n, rects: rectsFor(pg, a, b) });
+    }
+  }
+  if (search.matches.length) {
+    // parti dal primo risultato dalla pagina che stai guardando in poi
+    const from = keepPosition && prevPage ? prevPage : (currentPos()?.page ?? 1);
+    const k = search.matches.findIndex(m => m.page >= from);
+    search.cur = k < 0 ? 0 : k;
+  }
+  renderSearch();
+  drawOverlays();
+  if (!keepPosition) { revealMatch(); }
+}
+
+function searchOverlays() {
+  return search.matches.map((m, i) => ({ id: -1 - i, rects: m.rects, kind: i === search.cur ? 'search cur' : 'search' }));
+}
+
+function renderSearch() {
+  const n = search.matches.length;
+  $('searchCount').textContent = !search.query ? '' : n ? `${search.cur + 1}/${n}` : 'nessun risultato';
+  $('searchInput').classList.toggle('none', !!search.query && !n);
+}
+
+function revealMatch() {
+  const m = search.matches[search.cur];
+  if (!m) { return; }
+  const p = state.pages[m.page - 1];
+  const r = m.rects[0];
+  if (!p || !p.div || !r) { return; }
+  const y = p.div.offsetTop + r.y0 * state.scale;
+  if (y < viewer.scrollTop + 40 || y > viewer.scrollTop + viewer.clientHeight - 60) {
+    viewer.scrollTop = y - viewer.clientHeight / 3;
+  }
+  const x = p.div.offsetLeft + r.x0 * state.scale;
+  if (x < viewer.scrollLeft || x > viewer.scrollLeft + viewer.clientWidth - 40) {
+    viewer.scrollLeft = x - viewer.clientWidth / 3;
+  }
+}
+
+function moveSearch(dir) {
+  const n = search.matches.length;
+  if (!n) { return; }
+  search.cur = (search.cur + dir + n) % n;
+  renderSearch(); drawOverlays(); revealMatch();
+}
+
+function openSearch() {
+  show($('searchBar'));
+  const inp = $('searchInput');
+  const sel = window.getSelection()?.toString().trim();
+  if (sel && sel.length < 80 && !sel.includes('\n')) { inp.value = sel; void runSearch(); }
+  inp.focus(); inp.select();
+}
+
+function closeSearch() {
+  hide($('searchBar'));
+  search.matches = []; search.cur = -1; search.query = '';
+  drawOverlays();
+}
+
+$('searchBtn').onclick = () => ($('searchBar').classList.contains('hidden') ? openSearch() : closeSearch());
+$('searchClose').onclick = closeSearch;
+$('searchNext').onclick = () => moveSearch(1);
+$('searchPrev').onclick = () => moveSearch(-1);
+$('searchInput').addEventListener('input', () => {
+  clearTimeout(search.timer);
+  search.timer = setTimeout(() => void runSearch(), 200);
+});
+$('searchInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    clearTimeout(search.timer);
+    const q = foldWithMap($('searchInput').value.trim().replace(/\s+/g, ' ')).out;
+    if (q !== search.query) { void runSearch(); } else { moveSearch(e.shiftKey ? -1 : 1); }
+  }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSearch(); }
+});
+
 document.addEventListener('keydown', e => {
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'f') { e.preventDefault(); openSearch(); return; }
+  if (mod && e.key === 'F3') { e.preventDefault(); moveSearch(e.shiftKey ? -1 : 1); return; }
+  if (e.key === 'F3') { e.preventDefault(); moveSearch(e.shiftKey ? -1 : 1); return; }
+  // nella casella di ricerca Ctrl+Z annulla il testo scritto, non le evidenziazioni
+  if (e.target instanceof HTMLInputElement) { return; }
+  if (mod && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); vscode.postMessage({ type: 'undo' }); return; }
+  if (mod && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); vscode.postMessage({ type: 'redo' }); return; }
+});
+
+document.addEventListener('keydown', e => {
+  if (e.target instanceof HTMLInputElement) { return; }
   if (e.key === 'Escape') { hide(floating); hide(menu); }
   if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) { e.preventDefault(); setZoom(state.scale * 1.1); }
   if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); setZoom(state.scale / 1.1); }
@@ -619,6 +878,9 @@ window.addEventListener('message', async ev => {
       state.pending = m.pending || 0;
       state.synctex = m.synctex;
       await load(m.data, m.keepPosition);
+      // PDF ricompilato: la ricerca aperta si rifà sul testo nuovo
+      search.index = null;
+      if (search.query) { void runSearch(true); }
       if (!m.synctex) { toast('Manca il file .synctex.gz: compila con -synctex=1 per evidenziare con precisione.', 'error'); }
       renderToolbar();
       break;
@@ -630,6 +892,9 @@ window.addEventListener('message', async ev => {
     case 'pending':
       state.pending = m.count;
       renderToolbar();
+      break;
+    case 'history':
+      renderHistory(m);
       break;
     case 'applied':
       if (!m.ok) {

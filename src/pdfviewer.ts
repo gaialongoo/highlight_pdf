@@ -19,6 +19,8 @@ type FromWebview =
   | { type: 'onHighlight'; action: 'remove' | 'recolor' | 'pick' | 'note'; page: number; pt: Pt; word: string; color?: string }
   | { type: 'jump'; page: number; pt: Pt }
   | { type: 'compile' }
+  | { type: 'undo' }
+  | { type: 'redo' }
   | { type: 'clean' }
   | { type: 'summary' }
   | { type: 'import' }
@@ -66,6 +68,7 @@ class Session implements vscode.Disposable {
     this.disposables.push(w,
       provider.hl.store.onDidChange(() => this.sendColors()),
       provider.hl.recompiler.onDidChangePending(n => this.post({ type: 'pending', count: n })),
+      provider.hl.onDidChangeHistory(h => this.post({ type: 'history', ...h })),
       panel.webview.onDidReceiveMessage(m => this.onMessage(m)),
     );
   }
@@ -131,6 +134,7 @@ class Session implements vscode.Disposable {
       switch (m.type) {
         case 'ready':
           this.sendColors();
+          this.post({ type: 'history', ...this.provider.hl.historyState() });
           await this.load(false);
           break;
         case 'setActive': {
@@ -158,6 +162,10 @@ class Session implements vscode.Disposable {
           break;
         case 'jump':
           await this.jump(m.page, m.pt);
+          break;
+        case 'undo':
+        case 'redo':
+          this.toast(await this.provider.hl.step(m.type === 'undo'));
           break;
         case 'compile':
           await this.provider.hl.recompiler.build(texForPdf(this.pdf.fsPath));
@@ -367,11 +375,15 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider, v
   <div id="dots"></div>
   <button id="moreBtn" class="tb icon" title="Altro colore… (palette completa)">＋</button>
   <span class="sep"></span>
+  <button id="undoBtn" class="tb icon" title="Annulla (Ctrl+Z)" disabled>↶</button>
+  <button id="redoBtn" class="tb icon" title="Ripeti (Ctrl+Y)" disabled>↷</button>
+  <span class="sep"></span>
   <button id="compileBtn" class="tb" title="Compila adesso">⟳ <span id="pendingTxt">Compila</span></button>
   <button id="summaryBtn" class="tb" title="Genera il riassunto delle evidenziazioni (PDF o Markdown)">☰ Riassunto</button>
   <button id="cleanBtn" class="tb" title="Compila una copia senza evidenziazioni né note (…-pulito.pdf)">◻ PDF pulito</button>
   <button id="importBtn" class="tb" title="Importa le evidenziazioni da un PDF annotato con Edge/Acrobat">⇩ Importa</button>
   <span class="grow"></span>
+  <button id="searchBtn" class="tb icon" title="Cerca nel PDF (Ctrl+F)">⌕</button>
   <button id="zoomOut" class="tb icon" title="Riduci (Ctrl+rotellina)">−</button>
   <select id="zoomSel" title="Zoom">
     <option value="width">Larghezza</option><option value="page">Pagina</option>
@@ -380,6 +392,13 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider, v
   </select>
   <button id="zoomIn" class="tb icon" title="Ingrandisci (Ctrl+rotellina)">+</button>
   <span id="pageInfo"></span>
+</div>
+<div id="searchBar" class="hidden">
+  <input id="searchInput" type="text" placeholder="Cerca nel PDF…" spellcheck="false">
+  <span id="searchCount"></span>
+  <button id="searchPrev" class="tb icon" title="Precedente (Maiusc+Invio)">▲</button>
+  <button id="searchNext" class="tb icon" title="Successivo (Invio)">▼</button>
+  <button id="searchClose" class="tb icon" title="Chiudi (Esc)">✕</button>
 </div>
 <div id="viewer"></div>
 <div id="floating" class="pop hidden"></div>

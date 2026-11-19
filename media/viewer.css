@@ -121,3 +121,26 @@ body {
   border: 1px solid var(--vscode-notifications-border, transparent);
 }
 #toast.error { border-left: 4px solid var(--vscode-notificationsErrorIcon-foreground, #f14c4c); }
+
+/* Annulla / ripeti */
+.tb:disabled { opacity: .35; cursor: default; background: transparent; }
+
+/* Cerca nel PDF */
+#searchBar {
+  position: fixed; top: calc(var(--tb-h) + 6px); right: 14px; z-index: 25;
+  display: flex; align-items: center; gap: 4px; padding: 4px 6px;
+  background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, #8884));
+  border-radius: 6px; box-shadow: 0 2px 8px var(--vscode-widget-shadow, #0004);
+}
+#searchBar.hidden { display: none; }
+#searchInput {
+  width: 220px; padding: 3px 6px; font: inherit; border-radius: 3px;
+  background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, transparent); outline: none;
+}
+#searchInput:focus { border-color: var(--vscode-focusBorder, #0078d4); }
+#searchInput.none { border-color: var(--vscode-inputValidation-errorBorder, #be1100); }
+#searchCount { min-width: 64px; text-align: center; opacity: .8; font-size: 12px; }
+.mark.search { background: rgb(255 170 0 / 0.35); }
+.mark.search.cur { background: rgb(255 120 0 / 0.75); outline: 1.5px solid rgb(230 90 0); }

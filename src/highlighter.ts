@@ -6,6 +6,7 @@ import { buildWrap, evidAt, evidOpen, findEvids, unwrapAll, EvidMatch } from './
 import { EvidColor, displayName, noteArg } from './colorsfile';
 import { cfg } from './config';
 import { Tracked } from './repair';
+import { History, Change, plan, afterApply } from './history';
 
 export type Mode = 'toggle' | 'color' | 'remove';
 
@@ -13,7 +14,14 @@ export interface Target { from: number; to: number; }
 
 export interface ApplyResult { added: number; removed: number; recolored: number; emptyMiss: boolean; }
 
+export interface HistoryState { canUndo: boolean; canRedo: boolean; undoLabel?: string; redoLabel?: string; }
+
 export class Highlighter {
+  /** annulla / ripeti delle modifiche fatte dall'estensione */
+  readonly history = new History();
+  private readonly historyEmitter = new vscode.EventEmitter<HistoryState>();
+  readonly onDidChangeHistory = this.historyEmitter.event;
+
   constructor(
     private readonly ctx: vscode.ExtensionContext,
     readonly store: ColorStore,
@@ -80,16 +88,19 @@ export class Highlighter {
     let lastEnd = -1;
     let delta = 0;
     const tracked: Tracked[] = [];
+    const changes: Change[] = [];
     for (const e of edits) {
       if (e.start < lastEnd) { continue; }
       we.replace(doc.uri, new vscode.Range(doc.positionAt(e.start), doc.positionAt(e.end)), e.text);
       // ricorda le nuove evidenziazioni: se rompono la compilazione si annullano
       if (e.wrap) { tracked.push({ file: doc.uri.fsPath, inserted: e.text, original: text.slice(e.start, e.end), offset: e.start + delta }); }
+      changes.push({ file: doc.uri.fsPath, at: e.start + delta, before: text.slice(e.start, e.end), after: e.text });
       delta += e.text.length - (e.end - e.start);
       lastEnd = e.end;
     }
     if (!await vscode.workspace.applyEdit(we)) { return { added: 0, removed: 0, recolored: 0, emptyMiss: false }; }
     this.recompiler.track(root, tracked);
+    this.record(res.added ? 'evidenziazione' : res.recolored ? 'cambio colore' : 'rimozione', root, changes);
 
     if (res.added || res.recolored) {
       await this.store.addRecent(color);
@@ -165,7 +176,52 @@ export class Highlighter {
       : evidOpen({ cmd: comando, color: color === colorePredefinito ? undefined : color });
     const we = new vscode.WorkspaceEdit();
     we.replace(doc.uri, new vscode.Range(doc.positionAt(fresh.start), doc.positionAt(fresh.headerEnd)), header);
-    return vscode.workspace.applyEdit(we);
+    const before = doc.getText().slice(fresh.start, fresh.headerEnd);
+    const ok = await vscode.workspace.applyEdit(we);
+    if (ok) { this.record('nota', rootFileOf(doc), [{ file: doc.uri.fsPath, at: fresh.start, before, after: header }]); }
+    return ok;
+  }
+
+  // -------------------------------------------------------------------------
+  // Annulla / ripeti
+  // -------------------------------------------------------------------------
+
+  private record(label: string, root: string, changes: Change[]) {
+    this.history.push({ label, root, changes: changes.filter(c => c.before !== c.after) });
+    this.historyEmitter.fire(this.historyState());
+  }
+
+  historyState(): HistoryState {
+    const u = this.history.peekUndo(), r = this.history.peekRedo();
+    return { canUndo: !!u, canRedo: !!r, undoLabel: u?.label, redoLabel: r?.label };
+  }
+
+  /** Annulla (o ripete) l'ultima operazione. Restituisce un messaggio per l'utente. */
+  async step(undo: boolean): Promise<string> {
+    const e = undo ? this.history.peekUndo() : this.history.peekRedo();
+    if (!e) { return undo ? 'Niente da annullare' : 'Niente da ripetere'; }
+    const docs = new Map<string, vscode.TextDocument>();
+    const texts = new Map<string, string>();
+    for (const c of e.changes) {
+      if (docs.has(c.file)) { continue; }
+      try { const d = await vscode.workspace.openTextDocument(c.file); docs.set(c.file, d); texts.set(c.file, d.getText()); } catch { /* sparito */ }
+    }
+    const reps = plan(e, texts, undo);
+    if (!reps) {
+      if (undo) { this.history.dropUndo(); } else { this.history.dropRedo(); }
+      this.historyEmitter.fire(this.historyState());
+      return `Non posso ${undo ? 'annullare' : 'ripetere'} "${e.label}": quel punto del .tex è stato modificato a mano.`;
+    }
+    const we = new vscode.WorkspaceEdit();
+    for (const r of reps) {
+      const d = docs.get(r.change.file)!;
+      we.replace(d.uri, new vscode.Range(d.positionAt(r.start), d.positionAt(r.end)), r.text);
+    }
+    if (!await vscode.workspace.applyEdit(we)) { return 'Modifica non riuscita'; }
+    if (undo) { this.history.undone(afterApply(reps)); } else { this.history.redone(afterApply(reps)); }
+    this.historyEmitter.fire(this.historyState());
+    this.recompiler.notify(e.root, 1);
+    return `${undo ? 'Annullato' : 'Ripetuto'}: ${e.label}`;
   }
 
   /** L'\evid che contiene l'offset (dopo una modifica). */
