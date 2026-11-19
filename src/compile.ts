@@ -4,6 +4,7 @@ import * as cp from 'child_process';
 import * as fs from 'fs';
 import { cfg } from './config';
 import { detectEngine, readText } from './latex';
+import { Tracked, parseLogErrors, culprits, lineAt } from './repair';
 
 const LW_ID = 'james-yu.latex-workshop';
 
@@ -23,6 +24,8 @@ export class Recompiler implements vscode.Disposable {
   readonly onDidChangePending = this.pendingEmitter.event;
   get pendingCount() { return this.pending; }
   private readonly disposables: vscode.Disposable[] = [];
+  /** evidenziazioni non ancora passate da una compilazione riuscita, per file principale */
+  private journal = new Map<string, Tracked[]>();
 
   constructor() {
     this.item = vscode.window.createStatusBarItem('evid.pending', vscode.StatusBarAlignment.Left, 50);
@@ -33,6 +36,51 @@ export class Recompiler implements vscode.Disposable {
         // se LaTeX Workshop compila da solo al salvataggio, il conteggio riparte
         if (d.languageId === 'latex' && this.lwAutoBuilds() && !this.building) { this.reset(); }
       }));
+  }
+
+  /** Ricorda le evidenziazioni appena scritte: se rompono la compilazione si annullano. */
+  track(rootFile: string, items: Tracked[]) {
+    if (!items.length) { return; }
+    const key = rootFile.toLowerCase();
+    this.journal.set(key, [...(this.journal.get(key) ?? []), ...items]);
+  }
+
+  /**
+   * Dopo una compilazione fallita: annulla le evidenziazioni nuove che stanno sulle
+   * righe degli errori. Restituisce quante ne ha annullate.
+   */
+  private async repair(rootFile: string, logFile: string): Promise<number> {
+    const key = rootFile.toLowerCase();
+    const tracked = this.journal.get(key) ?? [];
+    if (!tracked.length) { return 0; }
+    let log = '';
+    try { log = fs.readFileSync(logFile, 'latin1'); } catch { return 0; }
+    const errors = parseLogErrors(log, path.dirname(rootFile));
+    if (!errors.length) { return 0; }
+    const docs = new Map<string, vscode.TextDocument>();
+    const texts = new Map<string, string>();
+    for (const t of tracked) {
+      if (docs.has(t.file)) { continue; }
+      try {
+        const d = await vscode.workspace.openTextDocument(t.file);
+        docs.set(t.file, d); texts.set(t.file, d.getText());
+      } catch { /* file sparito */ }
+    }
+    const bad = culprits(tracked, errors, texts);
+    if (!bad.length) { return 0; }
+    const we = new vscode.WorkspaceEdit();
+    for (const { item, at } of bad) {
+      const d = docs.get(item.file)!;
+      we.replace(d.uri, new vscode.Range(d.positionAt(at), d.positionAt(at + item.inserted.length)), item.original);
+    }
+    if (!await vscode.workspace.applyEdit(we)) { return 0; }
+    for (const f of new Set(bad.map(b => b.item.file))) { await docs.get(f)!.save(); }
+    this.journal.set(key, tracked.filter(t => !bad.some(b => b.item === t)));
+    const where = [...new Set(bad.map(b => `${path.basename(b.item.file)}:${lineAt(texts.get(b.item.file)!, b.at)}`))].join(', ');
+    this.out.appendLine(`Annullate ${bad.length} evidenziazioni che impedivano la compilazione (${where}).`);
+    void vscode.window.showWarningMessage(
+      `${bad.length === 1 ? "Un'evidenziazione impediva" : `${bad.length} evidenziazioni impedivano`} la compilazione (${where}): l'ho annullata e ricompilo.`);
+    return bad.length;
   }
 
   /** Chiamato dopo ogni evidenziazione. */
@@ -130,6 +178,13 @@ export class Recompiler implements vscode.Disposable {
         // con autoBuild attivo il salvataggio fa già partire la compilazione
         if (!this.lwAutoBuilds() || dirty.length === 0) {
           await vscode.commands.executeCommand('latex-workshop.build');
+          for (const r of roots) {
+            const log = r.replace(/\.tex$/i, '.log');
+            let fresh = false;
+            try { fresh = fs.statSync(log).mtimeMs >= savedAt - 200; } catch { /* niente log */ }
+            if (fresh && await this.repair(r, log) > 0) { await vscode.commands.executeCommand('latex-workshop.build'); }
+            else if (fresh && !parseLogErrors(fs.readFileSync(log, 'latin1'), path.dirname(r)).length) { this.journal.delete(r.toLowerCase()); }
+          }
         }
       } else {
         for (const r of roots) {
@@ -170,7 +225,23 @@ export class Recompiler implements vscode.Disposable {
   }
 
   private async runEngine(rootFile: string) {
-    await this.compileTex(rootFile, { synctex: true });
+    const key = rootFile.toLowerCase();
+    const guarded = (this.journal.get(key)?.length ?? 0) > 0;
+    // con evidenziazioni nuove in sospeso l'errore lo mostriamo solo se non si ripara
+    if (await this.compileTex(rootFile, { synctex: true, quiet: guarded })) { this.journal.delete(key); return; }
+    if (!guarded) { return; }
+    const savedAt = Date.now();
+    if (await this.repair(rootFile, rootFile.replace(/\.tex$/i, '.log')) > 0) {
+      // il salvataggio della riparazione può far partire LaTeX Workshop da solo:
+      // in quel caso non compiliamo una seconda volta in parallelo
+      if (this.lw() && this.lwAutoBuilds() && await this.lwStarted(rootFile, savedAt)) {
+        this.out.appendLine(`LaTeX Workshop ricompila ${path.basename(rootFile)} dopo la riparazione.`);
+        return;
+      }
+      if (await this.compileTex(rootFile, { synctex: true })) { this.journal.delete(key); }
+    } else {
+      this.showErrors(rootFile, rootFile.replace(/\.tex$/i, ''));
+    }
   }
 
   /**
@@ -182,7 +253,7 @@ export class Recompiler implements vscode.Disposable {
    * - prefix:  codice TeX da eseguire prima del file (es. "\def\evidpulito{}")
    * - texFile: file da compilare (default rootFile)
    */
-  async compileTex(rootFile: string, opts: { synctex?: boolean; jobname?: string; prefix?: string; texFile?: string; title?: string } = {}): Promise<boolean> {
+  async compileTex(rootFile: string, opts: { synctex?: boolean; jobname?: string; prefix?: string; texFile?: string; title?: string; quiet?: boolean } = {}): Promise<boolean> {
     let engine: string = detectEngine(await readText(rootFile));
     const tools = vscode.workspace.getConfiguration('latex-workshop').get<{ command: string }[]>('latex.tools', []);
     const abs = tools.map(t => t.command).find(c => path.isAbsolute(c) && path.basename(c).toLowerCase().startsWith(engine));
@@ -217,13 +288,19 @@ export class Recompiler implements vscode.Disposable {
         if (!/Rerun to get|Label\(s\) may have changed|Rerun LaTeX/.test(log)) { break; }
       }
     });
-    if (code > 0) {
-      const errs = this.errorsFromLog(path.join(dir, jobname + '.log'));
-      vscode.window.showWarningMessage(
-        `${path.basename(engine)}: errori nella compilazione di ${jobname}${errs ? ` — ${errs}` : ''}`, 'Mostra log')
-        .then(c => { if (c) { this.out.show(); } });
-    }
+    this.lastEngine = path.basename(engine);
+    if (code > 0 && !opts.quiet) { this.showErrors(rootFile, path.join(dir, jobname)); }
     return code === 0;
+  }
+
+  private lastEngine = 'pdflatex';
+
+  /** Avviso col primo errore del log (`jobPath` = percorso senza estensione). */
+  private showErrors(rootFile: string, jobPath: string) {
+    const errs = this.errorsFromLog(jobPath + '.log');
+    vscode.window.showWarningMessage(
+      `${this.lastEngine}: errori nella compilazione di ${path.basename(jobPath)}${errs ? ` — ${errs}` : ''}`, 'Mostra log')
+      .then(c => { if (c) { this.out.show(); } });
   }
 
   /** Primo errore del log, in breve ("appunti.tex:120: Undefined control sequence"). */

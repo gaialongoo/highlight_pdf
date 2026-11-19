@@ -5,6 +5,7 @@ import { rootFileOf, checkPreamble, detectEngine, readText, supportsNotes } from
 import { buildWrap, evidAt, evidOpen, findEvids, unwrapAll, EvidMatch } from './parser';
 import { EvidColor, displayName, noteArg } from './colorsfile';
 import { cfg } from './config';
+import { Tracked } from './repair';
 
 export type Mode = 'toggle' | 'color' | 'remove';
 
@@ -34,7 +35,7 @@ export class Highlighter {
     const evids = findEvids(text, comando);
     const colorArg = color.name === colorePredefinito ? undefined : color.name;
 
-    interface Edit { start: number; end: number; text: string; }
+    interface Edit { start: number; end: number; text: string; wrap?: boolean; }
     const edits: Edit[] = [];
     const res: ApplyResult = { added: 0, removed: 0, recolored: 0, emptyMiss: false };
 
@@ -60,7 +61,7 @@ export class Highlighter {
       }
       const w = buildWrap(text, from, to, { cmd: comando, color: colorArg, splitMath });
       if (!w) { continue; }
-      edits.push({ start: w.start, end: w.end, text: w.text });
+      edits.push({ start: w.start, end: w.end, text: w.text, wrap: true });
       res.added += w.count;
     }
 
@@ -77,12 +78,18 @@ export class Highlighter {
     edits.sort((a, b) => a.start - b.start);
     const we = new vscode.WorkspaceEdit();
     let lastEnd = -1;
+    let delta = 0;
+    const tracked: Tracked[] = [];
     for (const e of edits) {
       if (e.start < lastEnd) { continue; }
       we.replace(doc.uri, new vscode.Range(doc.positionAt(e.start), doc.positionAt(e.end)), e.text);
+      // ricorda le nuove evidenziazioni: se rompono la compilazione si annullano
+      if (e.wrap) { tracked.push({ file: doc.uri.fsPath, inserted: e.text, original: text.slice(e.start, e.end), offset: e.start + delta }); }
+      delta += e.text.length - (e.end - e.start);
       lastEnd = e.end;
     }
     if (!await vscode.workspace.applyEdit(we)) { return { added: 0, removed: 0, recolored: 0, emptyMiss: false }; }
+    this.recompiler.track(root, tracked);
 
     if (res.added || res.recolored) {
       await this.store.addRecent(color);
