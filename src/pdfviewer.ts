@@ -8,6 +8,7 @@ import { findEvids, EvidMatch } from './parser';
 import { openPalette, pickColor } from './picker';
 import { displayName, EvidColor, PASTELLI } from './colorsfile';
 import { cfg } from './config';
+import { includedFiles } from './project';
 
 interface Pt { x: number; y: number; page?: number; }
 type FromWebview =
@@ -194,9 +195,18 @@ class Session implements vscode.Disposable {
   private async highlight(m: Extract<FromWebview, { type: 'highlight' }>) {
     const src = await this.sourceFor(m.page, [m.start, m.end]);
     if (!src) { this.post({ type: 'applied', id: m.id, ok: false }); return; }
-    const { doc, lines } = src;
-    const text = doc.getText();
-    const found = locate(text, m.text, lines, vscode.workspace.getConfiguration('evid').get<number>('pdf.finestraRighe', 8));
+    const { lines } = src;
+    let doc = src.doc;
+    const win = vscode.workspace.getConfiguration('evid').get<number>('pdf.finestraRighe', 8);
+    let found = locate(doc.getText(), m.text, lines, win);
+    // senza SyncTeX si conosce solo il file principale: cerca anche nei file inclusi
+    if (!found && !lines.length) {
+      for (const f of includedFiles(doc.uri.fsPath)) {
+        const d = await vscode.workspace.openTextDocument(f);
+        const r = locate(d.getText(), m.text, [], win);
+        if (r) { doc = d; found = r; break; }
+      }
+    }
     if (!found) {
       this.post({ type: 'applied', id: m.id, ok: false });
       const choice = await vscode.window.showWarningMessage(

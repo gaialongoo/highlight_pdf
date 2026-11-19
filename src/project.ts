@@ -5,6 +5,27 @@ import { cfg } from './config';
 import { Item, itemsOf, findInputs, sectionChain } from './summary';
 import { findHeadings, Heading } from './parser';
 
+/** I file inclusi con \input / \include (ricorsivamente), nell'ordine in cui compaiono. */
+export function includedFiles(rootFile: string): string[] {
+  const seen = new Set<string>([rootFile.toLowerCase()]);
+  const out: string[] = [];
+  const visit = (file: string) => {
+    let text: string;
+    try { text = fs.readFileSync(file, 'utf8'); } catch { return; }
+    for (const inp of findInputs(text)) {
+      let child = path.resolve(path.dirname(file), inp.name);
+      if (!/\.tex$/i.test(child)) { child += '.tex'; }
+      const key = child.toLowerCase();
+      if (seen.has(key) || !fs.existsSync(child)) { continue; }
+      seen.add(key);
+      out.push(child);
+      visit(child);
+    }
+  };
+  visit(rootFile);
+  return out;
+}
+
 /**
  * Tutte le evidenziazioni del progetto, nell'ordine in cui compaiono nel PDF:
  * il file principale più i file inclusi con \input / \include (ricorsivamente).

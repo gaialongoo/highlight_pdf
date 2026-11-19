@@ -27,11 +27,66 @@ const SKIP_ARG = new Set([
 ]);
 
 const SYMBOL_TEXT: Record<string, string> = { ss: 'ss', i: 'i', j: 'j', o: 'o', O: 'o', l: 'l', L: 'l', ae: 'ae', AE: 'ae', oe: 'oe', OE: 'oe', aa: 'a', AA: 'a' };
-const ACCENTS = new Set(["'", '`', '^', '"', '~', '=', '.', 'u', 'v', 'H', 'c', 'k', 'r', 'b', 'd', 't']);
+/** Lettere greche: nel PDF compaiono come caratteri Unicode (Θ, α…). Le varianti
+ *  (ϑ, ϵ, ϕ…) diventano comunque la lettera base con la normalizzazione NFKD. */
+const GREEK: Record<string, string> = {
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ϵ', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
+  theta: 'θ', vartheta: 'ϑ', iota: 'ι', kappa: 'κ', varkappa: 'ϰ', lambda: 'λ', mu: 'μ', nu: 'ν',
+  xi: 'ξ', omicron: 'ο', pi: 'π', varpi: 'ϖ', rho: 'ρ', varrho: 'ϱ', sigma: 'σ', varsigma: 'ς',
+  tau: 'τ', upsilon: 'υ', phi: 'ϕ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Upsilon: 'Υ',
+  Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+  varGamma: 'Γ', varDelta: 'Δ', varTheta: 'Θ', varLambda: 'Λ', varXi: 'Ξ', varPi: 'Π',
+  varSigma: 'Σ', varUpsilon: 'Υ', varPhi: 'Φ', varPsi: 'Ψ', varOmega: 'Ω',
+  ell: 'ℓ', aleph: 'ℵ', hbar: 'ℏ', imath: 'ı', jmath: 'ȷ',
+};
 
-/** Riduce una stringa qualsiasi alle sole lettere/cifre minuscole senza accenti. */
-export function simplify(s: string): string {
-  return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+/** Simboli matematici: contano solo nella ricerca "con simboli" (vedi `locate`). */
+const MATH_SYMBOLS: Record<string, string> = {
+  leq: '≤', le: '≤', leqslant: '≤', geq: '≥', ge: '≥', geqslant: '≥', neq: '≠', ne: '≠',
+  ll: '≪', gg: '≫', approx: '≈', equiv: '≡', sim: '∼', simeq: '≃', cong: '≅', propto: '∝',
+  infty: '∞', sum: '∑', prod: '∏', coprod: '∐', int: '∫', iint: '∬', iiint: '∭', oint: '∮',
+  partial: '∂', nabla: '∇', pm: '±', mp: '∓', times: '×', div: '÷', cdot: '⋅', circ: '∘',
+  bullet: '∙', ast: '∗', star: '⋆', oplus: '⊕', otimes: '⊗', sqrt: '√', surd: '√',
+  to: '→', rightarrow: '→', leftarrow: '←', gets: '←', leftrightarrow: '↔', mapsto: '↦',
+  Rightarrow: '⇒', Leftarrow: '⇐', Leftrightarrow: '⇔', implies: '⟹', impliedby: '⟸', iff: '⟺',
+  longrightarrow: '⟶', longleftarrow: '⟵', longmapsto: '⟼', uparrow: '↑', downarrow: '↓',
+  in: '∈', notin: '∉', ni: '∋', subset: '⊂', subseteq: '⊆', supset: '⊃', supseteq: '⊇',
+  subsetneq: '⊊', supsetneq: '⊋', cup: '∪', cap: '∩', bigcup: '⋃', bigcap: '⋂', setminus: '∖',
+  emptyset: '∅', varnothing: '∅', forall: '∀', exists: '∃', nexists: '∄', neg: '¬', lnot: '¬',
+  land: '∧', wedge: '∧', lor: '∨', vee: '∨', bigwedge: '⋀', bigvee: '⋁',
+  perp: '⊥', parallel: '∥', mid: '∣', angle: '∠', langle: '⟨', rangle: '⟩',
+  lfloor: '⌊', rfloor: '⌋', lceil: '⌈', rceil: '⌉', cdots: '⋯', vdots: '⋮', ddots: '⋱',
+  top: '⊤', bot: '⊥', vdash: '⊢', models: '⊨', prec: '≺', succ: '≻', preceq: '⪯', succeq: '⪰',
+  triangle: '△', square: '□', Box: '□', Diamond: '◇', dagger: '†', ddagger: '‡', S: '§', P: '¶',
+  checkmark: '✓', degree: '°',
+};
+
+/** Varianti dello stesso simbolo che il PDF può restituire in modi diversi. */
+const SAME_SYMBOL: Record<string, string> = {
+  '·': '⋅', '∙': '⋅', '•': '⋅', '∣': '|', '*': '∗', '-': '−', '‐': '−', '–': '−', '⩽': '≤', '⩾': '≥',
+};
+
+/** Operatori matematici che nel PDF compaiono scritti per esteso ("sin", "log"…). */
+const MATH_WORDS = new Set([
+  'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'coth',
+  'log', 'ln', 'lg', 'exp', 'lim', 'liminf', 'limsup', 'max', 'min', 'sup', 'inf', 'det', 'dim', 'ker',
+  'deg', 'arg', 'gcd', 'hom', 'Pr',
+]);
+
+const ACCENTS =new Set(["'", '`', '^', '"', '~', '=', '.', 'u', 'v', 'H', 'c', 'k', 'r', 'b', 'd', 't']);
+
+/**
+ * Riduce una stringa qualsiasi alle sole lettere/cifre minuscole senza accenti.
+ * Con `symbols` tiene anche i simboli matematici (≤, ∞, ∑…).
+ */
+export function simplify(s: string, symbols = false): string {
+  let t = s.normalize('NFKD');
+  // la barra di negazione (≠ → "=" + U+0338) non va persa coi simboli
+  if (symbols) { t = t.replace(/̸/g, '¬'); }
+  t = t.replace(/[̀-ͯ]/g, '').toLowerCase();
+  if (!symbols) { return t.replace(/[^\p{L}\p{N}]/gu, ''); }
+  return [...t].map(ch => SAME_SYMBOL[ch] ?? ch).join('').replace(/[^\p{L}\p{N}\p{Sm}\p{So}]/gu, '');
 }
 
 function skipSpaces(t: string, i: number, end: number) {
@@ -50,12 +105,12 @@ function skipGroup(t: string, i: number, end: number, open: string, close: strin
   return end;
 }
 
-export function normalizeSource(t: string, from = 0, to = t.length): Normalized {
+export function normalizeSource(t: string, from = 0, to = t.length, symbols = false): Normalized {
   const norm: string[] = [];
   const startMap: number[] = [];
   const endMap: number[] = [];
   const emit = (s: string, start: number, endPos: number) => {
-    for (const ch of simplify(s)) { norm.push(ch); startMap.push(start); endMap.push(endPos); }
+    for (const ch of simplify(s, symbols)) { norm.push(ch); startMap.push(start); endMap.push(endPos); }
   };
   let i = from;
   while (i < to) {
@@ -81,6 +136,9 @@ export function normalizeSource(t: string, from = 0, to = t.length): Normalized 
           continue;
         }
         if (SYMBOL_TEXT[name]) { emit(SYMBOL_TEXT[name], i, j); i = j; continue; }
+        if (GREEK[name]) { emit(GREEK[name], i, j); i = j; continue; }
+        if (MATH_WORDS.has(name)) { emit(name, i, j); i = j; continue; }
+        if (MATH_SYMBOLS[name]) { emit(MATH_SYMBOLS[name], i, j); i = j; continue; }
         i = j;
         // argomenti facoltativi [..] (tranne \item, dove l'etichetta si vede)
         if (name !== 'item') {
@@ -110,9 +168,11 @@ export function normalizeSource(t: string, from = 0, to = t.length): Normalized 
         continue;
       }
       if ('%&$#_{}'.includes(n)) { emit(n, i, i + 2); }
+      else if (n === '|') { emit('∥', i, i + 2); }
       i += 2;
       continue;
     }
+    if (c === '~') { i++; continue; } // spazio non separabile, non un simbolo
     emit(c, i, i + 1);
     i++;
   }
@@ -187,16 +247,21 @@ export function lineOffset(text: string, line: number): number {
  * indicate da SyncTeX (± finestra) e poi in tutto il file.
  */
 export function locate(text: string, pdfText: string, lines: number[], window: number): FoundRange | undefined {
-  const needle = normalizePdf(pdfText);
-  if (needle.length < 1) { return undefined; }
   const near = lines.length ? lineOffset(text, Math.min(...lines)) : 0;
-  let r: FoundRange | undefined;
-  if (lines.length) {
-    const from = lineOffset(text, Math.max(0, Math.min(...lines) - window));
-    const to = lineOffset(text, Math.max(...lines) + window + 1);
-    r = findInNormalized(normalizeSource(text, from, to), needle, near);
-  }
-  r ??= findInNormalized(normalizeSource(text), needle, near);
+  const search = (symbols: boolean) => {
+    const needle = symbols ? simplify(pdfText, true) : normalizePdf(pdfText);
+    if (needle.length < 1) { return undefined; }
+    let r: FoundRange | undefined;
+    if (lines.length) {
+      const from = lineOffset(text, Math.max(0, Math.min(...lines) - window));
+      const to = lineOffset(text, Math.max(...lines) + window + 1);
+      r = findInNormalized(normalizeSource(text, from, to, symbols), needle, near);
+    }
+    return r ?? findInNormalized(normalizeSource(text, 0, text.length, symbols), needle, near);
+  };
+  // prima solo lettere e cifre (la più tollerante); i simboli servono quando la
+  // selezione è fatta solo di simboli (≤, ∞…) o le lettere da sole non bastano.
+  const r = search(false) ?? search(true);
   return r && extendPunctuation(text, pdfText, snapToWords(text, r));
 }
 

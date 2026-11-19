@@ -50,9 +50,9 @@ test('non attraversa paragrafi e ambienti', () => {
   assert.equal(out, '\\evid{uno due}\n\n\\evid{tre} \\begin{itemize}\\item \\evid{quattro}\\end{itemize} \\evid{cinque}');
 });
 
-test('pdfLaTeX: la matematica resta fuori da \\hl', () => {
+test('pdfLaTeX: la matematica resta fuori da \\hl (ma è evidenziata dentro)', () => {
   const src = 'sia $x^2$ positivo';
-  assert.equal(wrap(src, src), '\\evid{sia} $x^2$ \\evid{positivo}');
+  assert.equal(wrap(src, src), '\\evid{sia} $\\evid{x^2}$ \\evid{positivo}');
 });
 
 test('LuaLaTeX: la matematica resta dentro', () => {
@@ -127,3 +127,38 @@ test('hex', () => {
   assert.equal(normalizeHex('c8e6f5'), 'C8E6F5');
   assert.equal(normalizeHex('xyz'), undefined);
 });
+
+const R = String.raw;
+
+test('dentro \\[ \\]: evid in modalità matematica, delimitatori intatti', () => {
+  const src = R`Quindi \[ i = \Theta(\log n) \] fine.`;
+  assert.equal(wrap(src, R`\Theta(\log n)`), R`Quindi \[ i = \evid{\Theta(\log n)} \] fine.`);
+});
+
+test('dentro $$ $$ e $ $', () => {
+  assert.equal(wrap('a $$x + y$$ b', 'x + y'), R`a $$\evid{x + y}$$ b`);
+  assert.equal(wrap('a $x + y$ b', 'y'), R`a $x + \evid{y}$ b`);
+});
+
+test('selezione che taglia una formula in linea → formula intera', () => {
+  // pdfLaTeX: il testo con \hl, la formula col suo \evid dentro i $
+  assert.equal(wrap(R`il costo è $\Theta(n)$ ok`, R`costo è $\Theta`), R`il \evid{costo è} $\evid{\Theta(n)}$ ok`);
+  // LuaLaTeX: tutto insieme
+  assert.equal(wrap(R`il costo è $\Theta(n)$ ok`, R`costo è $\Theta`, undefined, false), R`il \evid{costo è $\Theta(n)$} ok`);
+});
+
+test('selezione che entra in una formula display → display fuori da \\hl', () => {
+  const src = R`Vale \[ a = b \] dunque`;
+  assert.equal(wrap(src, R`Vale \[ a`, undefined, false), R`\evid{Vale} \[ \evid{a = b} \] dunque`);
+});
+
+test('ambienti matematici: si spezza su & e \\\\', () => {
+  const src = R`\begin{align} a &= b \\ c &= d \end{align}`;
+  assert.equal(wrap(src, 'a &= b'), R`\begin{align} \evid{a} &\evid{= b} \\ c &= d \end{align}`);
+});
+
+test('esponenti e \\left \\right', () => {
+  assert.equal(wrap('$x^2$', '2'), R`$x^{\evid{2}}$`);
+  assert.equal(wrap(R`$\left( a + b \right)$`, R`\left( a + b \right)`), R`$\left( \evid{a + b} \right)$`);
+});
+

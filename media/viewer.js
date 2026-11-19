@@ -122,21 +122,24 @@ function observeAll() {
 }
 
 async function renderPage(p) {
-  if (!p || !state.doc || p.renderedScale === state.scale || p.rendering) { return; }
+  const dpr = window.devicePixelRatio || 1;
+  if (!p || !state.doc || (p.renderedScale === state.scale && p.renderedDpr === dpr) || p.rendering) { return; }
   p.rendering = true;
   const scale = state.scale;
   const doc = state.doc;
   try {
     const page = await doc.getPage(p.num);
     const vp = page.getViewport({ scale });
-    const dpr = window.devicePixelRatio || 1;
+    // un pixel del canvas = un pixel dello schermo (nitido anche col ridimensionamento
+    // di Windows al 125%/150%): dimensioni CSS ricavate da quelle intere del canvas
     const canvas = document.createElement('canvas');
-    canvas.width = Math.floor(vp.width * dpr);
-    canvas.height = Math.floor(vp.height * dpr);
-    canvas.style.width = `${vp.width}px`;
-    canvas.style.height = `${vp.height}px`;
+    canvas.width = Math.round(vp.width * dpr);
+    canvas.height = Math.round(vp.height * dpr);
+    canvas.style.width = `${canvas.width / dpr}px`;
+    canvas.style.height = `${canvas.height / dpr}px`;
+    const sx = canvas.width / vp.width, sy = canvas.height / vp.height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    p.task = page.render({ canvasContext: ctx, viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+    p.task = page.render({ canvasContext: ctx, viewport: vp, transform: sx !== 1 || sy !== 1 ? [sx, 0, 0, sy, 0, 0] : null });
     await p.task.promise;
     if (doc !== state.doc || scale !== state.scale) { return; }
     const tl = document.createElement('div');
@@ -147,7 +150,7 @@ async function renderPage(p) {
     p.div.querySelectorAll('canvas, .textLayer').forEach(el => el.remove());
     p.div.insertBefore(canvas, p.overlay);
     p.div.appendChild(tl);
-    p.canvas = canvas; p.tl = tl; p.renderedScale = scale;
+    p.canvas = canvas; p.tl = tl; p.renderedScale = scale; p.renderedDpr = dpr;
   } catch (e) {
     if (!(e && e.name === 'RenderingCancelledException')) { console.error(e); }
   } finally {
@@ -163,6 +166,14 @@ function relayout() {
   observeAll();
   persist();
 }
+
+// zoom di VS Code (Ctrl +/-) o schermo diverso: ridisegna alla nuova risoluzione,
+// altrimenti le pagine restano ingrandite dalla vecchia e si vedono sfocate
+function watchDpr() {
+  const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+  mq.addEventListener('change', () => { if (state.doc) { relayout(); } watchDpr(); }, { once: true });
+}
+watchDpr();
 
 // posizione = pagina + frazione verticale, così sopravvive a zoom e ricompilazioni
 function currentPos() {
@@ -256,15 +267,12 @@ function mergeLines(rects) {
 function drawOverlays() {
   state.pages.forEach(p => p.overlay && p.overlay.replaceChildren());
   for (const o of state.overlays) {
-    // L'animazione d'ingresso parte solo la prima volta che l'evidenziazione
-    // viene disegnata, non a ogni ridisegno.
-    const fresh = !o.drawn;
-    o.drawn = true;
     for (const r of o.rects) {
       const p = state.pages[r.page - 1];
       if (!p || !p.overlay) { continue; }
       const d = document.createElement('div');
-      d.className = 'mark ' + o.kind + (fresh ? ' fresh' : '');
+      d.className = 'mark ' + o.kind;
+      d.dataset.id = String(o.id);
       d.style.left = `${(r.x0 / p.w) * 100}%`;
       d.style.top = `${(r.y0 / p.h) * 100}%`;
       d.style.width = `${((r.x1 - r.x0) / p.w) * 100}%`;
@@ -303,12 +311,23 @@ function captureSelection() {
   };
 }
 
+/** Animazione d'ingresso, solo sui riquadri dell'evidenziazione appena creata.
+ *  Avviata da JS (non da CSS) così i ridisegni successivi non la ripetono. */
+function animateIn(id) {
+  viewer.querySelectorAll(`.mark[data-id="${id}"]`).forEach(d => {
+    if (d.animate) {
+      d.animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 180, easing: 'ease-out' });
+    }
+  });
+}
+
 function doHighlight(s, colorName, withNote = false) {
   if (!s) { return; }
   const c = colorName ? state.colors.quick.find(q => q.name === colorName) || state.colors.active : state.colors.active;
   const id = state.nextId++;
   state.overlays.push({ id, rects: s.rects, hex: c ? c.hex : 'FFF3B0', kind: 'pending' });
   drawOverlays();
+  animateIn(id);
   vscode.postMessage({ type: 'highlight', id, page: s.page, text: s.text, start: s.start, end: s.end, color: colorName, withNote });
   window.getSelection().removeAllRanges();
   hide(floating);
@@ -339,6 +358,7 @@ function showFloating(s) {
     vscode.postMessage({ type: 'pickMore', then: { id: state.nextId++, page: s.page, text: s.text, start: s.start, end: s.end } });
     state.overlays.push({ id: state.nextId - 1, rects: s.rects, hex: 'CCCCCC', kind: 'pending' });
     drawOverlays();
+    animateIn(state.nextId - 1);
     window.getSelection().removeAllRanges();
     hide(floating);
   };

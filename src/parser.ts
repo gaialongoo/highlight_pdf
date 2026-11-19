@@ -244,9 +244,15 @@ export function safeSegments(text: string, splitMath: boolean): Segment[] {
       i = end;
     }
   }
-  // matematica
-  if (splitMath) {
-    for (const m of findMath(text)) { addCut(m.start, m.end); }
+  // matematica: quella in display non può mai stare dentro \hl; quella in linea
+  // solo se richiesto (pdfLaTeX). Il contenuto lo evidenzia buildWrap a parte.
+  for (const m of mathRegions(text)) {
+    if (splitMath || m.display) { addCut(m.start, m.end); }
+  }
+  // \left … \right vanno in coppia: non separarli
+  const reLR = /\\(?:left|right|middle)\b\s*(?:\\[A-Za-z]+|\\.|[^\s])/g;
+  for (let m: RegExpExecArray | null; (m = reLR.exec(text));) {
+    if (!isEscaped(text, m.index)) { addCut(m.index, m.index + m[0].length); }
   }
 
   // 2. Pezzi tra i separatori
@@ -341,6 +347,64 @@ export function findMath(text: string): Segment[] {
   return out;
 }
 
+export interface MathRegion extends Segment {
+  /** contenuto della formula, senza delimitatori */
+  inStart: number;
+  inEnd: number;
+  /** formula in display ($$, \[, equation, align…): non può stare dentro \hl */
+  display: boolean;
+}
+
+const MATH_ENVS = 'equation|align|gather|multline|eqnarray|flalign|alignat|displaymath|math';
+
+/** Formule del testo, con i limiti del contenuto. Include gli ambienti matematici. */
+export function mathRegions(text: string): MathRegion[] {
+  const out: MathRegion[] = findMath(text).map(m => {
+    const t = text.slice(m.start, m.start + 2);
+    const d = t === '$$' || t === '\\[' || t === '\\(' ? 2 : 1;
+    const closed = text.slice(m.end - d, m.end) === (t === '\\(' ? '\\)' : t === '\\[' ? '\\]' : t.slice(0, d));
+    return { ...m, inStart: m.start + d, inEnd: closed ? m.end - d : m.end, display: t === '$$' || t === '\\[' };
+  });
+  const re = new RegExp(`\\\\begin\\s*\\{(${MATH_ENVS})(\\*?)\\}(\\s*\\{[^}]*\\})?`, 'g');
+  for (let m: RegExpExecArray | null; (m = re.exec(text));) {
+    if (isEscaped(text, m.index) || inComment(text, m.index)) { continue; }
+    const endTag = `\\end{${m[1]}${m[2]}}`;
+    const e = text.indexOf(endTag, m.index + m[0].length);
+    const inEnd = e < 0 ? text.length : e;
+    out.push({
+      start: m.index, end: e < 0 ? text.length : e + endTag.length,
+      inStart: m.index + m[0].length, inEnd, display: m[1] !== 'math',
+    });
+    re.lastIndex = inEnd;
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+function inComment(text: string, pos: number): boolean {
+  const ls = text.lastIndexOf('\n', pos - 1) + 1;
+  for (let i = ls; i < pos; i++) { if (text[i] === '%' && !isEscaped(text, i)) { return true; } }
+  return false;
+}
+
+/**
+ * Una selezione non deve mai tagliare a metà una formula: se ne prende solo un
+ * pezzo (e non sta tutta dentro) la allarga alla formula intera.
+ */
+export function expandToMath(text: string, from: number, to: number, regions = mathRegions(text)): Segment {
+  let s = from, e = to;
+  if (regions.some(r => s >= r.inStart && e <= r.inEnd)) { return { start: s, end: e }; } // tutta dentro
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const r of regions) {
+      if (r.start < e && s < r.end && (r.start < s || r.end > e)) {
+        s = Math.min(s, r.start); e = Math.max(e, r.end); changed = true;
+      }
+    }
+  }
+  return { start: s, end: e };
+}
+
 export function evidOpen(opts: { cmd: string; color?: string; note?: string }): string {
   let s = '\\' + opts.cmd;
   if (opts.color || opts.note !== undefined) { s += `[${opts.color ?? ''}]`; }
@@ -354,16 +418,38 @@ export function evidOpen(opts: { cmd: string; color?: string; note?: string }): 
  */
 export function buildWrap(text: string, from: number, to: number, opts: WrapOptions): WrapResult | undefined {
   const evids = findEvids(text, opts.cmd);
-  const sel = expandSelection(text, from, to, evids);
+  const regions = mathRegions(text);
+  let sel = expandSelection(text, from, to, evids);
+  for (let k = 0; k < 3; k++) { // formule ed evid possono allargarsi a vicenda
+    const m = expandToMath(text, sel.start, sel.end, regions);
+    const n = expandSelection(text, m.start, m.end, evids);
+    const same = n.start === sel.start && n.end === sel.end;
+    sel = n;
+    if (same) { break; }
+  }
   const original = text.slice(sel.start, sel.end);
   const clean = unwrapAll(original, opts.cmd);
   const segs = safeSegments(clean, opts.splitMath);
+  // le formule tolte dal testo (display, o tutte con pdfLaTeX) si evidenziano dentro
+  for (const r of mathRegions(clean)) {
+    if (!(r.display || opts.splitMath)) { continue; }
+    const inner = clean.slice(r.inStart, r.inEnd);
+    for (const p of safeSegments(inner, false)) { segs.push({ start: r.inStart + p.start, end: r.inStart + p.end }); }
+  }
+  segs.sort((a, b) => a.start - b.start);
   if (segs.length === 0) { return undefined; }
   const open = evidOpen({ cmd: opts.cmd, color: opts.color });
+  const full = text.slice(0, sel.start) + clean;
+  const base = sel.start;
   let out = '';
   let pos = 0;
   for (const s of segs) {
-    out += clean.slice(pos, s.start) + open + clean.slice(s.start, s.end) + '}';
+    // dopo ^ o _ serve un gruppo: x^{\evid{2}}
+    let k = base + s.start - 1;
+    while (k >= 0 && /\s/.test(full[k])) { k--; }
+    const script = k >= 0 && (full[k] === '^' || full[k] === '_') && !isEscaped(full, k);
+    const body = open + clean.slice(s.start, s.end) + '}';
+    out += clean.slice(pos, s.start) + (script ? `{${body}}` : body);
     pos = s.end;
   }
   out += clean.slice(pos);

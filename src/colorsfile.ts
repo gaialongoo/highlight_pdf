@@ -110,7 +110,7 @@ export type Engine = 'pdflatex' | 'lualatex';
 
 export const BLOCK_BEGIN = '% --- Evidenziatore LaTeX';
 export const BLOCK_END = '% --- fine Evidenziatore LaTeX ---';
-export const BLOCK_VERSION = 'v2';
+export const BLOCK_VERSION = 'v3';
 
 /** Blocco da inserire nel preambolo: \evid[colore][nota]{testo}, \evidnota, PDF pulito. */
 export function preambleBlock(engine: Engine, cmd: string, colorsBase: string, defaultColor: string): string {
@@ -127,9 +127,14 @@ export function preambleBlock(engine: Engine, cmd: string, colorsBase: string, d
 ${pkgs}
 \\usepackage{marginnote}
 \\input{${colorsBase}}
-% \\${cmd}[colore][nota]{testo}
+% \\${cmd}[colore][nota]{testo}  (anche dentro le formule)
 \\NewDocumentCommand{\\${cmd}}{O{${defaultColor}} o m}{%
-  ${hl}\\IfValueT{#2}{\\evidnota[#1]{#2}}}
+  \\ifmmode\\evidmath{#1}{#3}\\else${hl}\\fi\\IfValueT{#2}{\\evidnota[#1]{#2}}}
+% in matematica \\hl non funziona: sfondo colorato che rispetta lo stile (display, indici…)
+\\newcommand{\\evidmath}[2]{\\mathchoice
+  {\\evidmbox{#1}{\\displaystyle#2}}{\\evidmbox{#1}{\\textstyle#2}}%
+  {\\evidmbox{#1}{\\scriptstyle#2}}{\\evidmbox{#1}{\\scriptscriptstyle#2}}}
+\\newcommand{\\evidmbox}[2]{{\\setlength{\\fboxsep}{0.5pt}\\colorbox{#1}{$#2$}}}
 % nota: a margine se c'è spazio, altrimenti a piè di pagina
 \\newlength{\\evidmargine}
 \\AtBeginDocument{\\setlength{\\evidmargine}{\\dimexpr\\paperwidth-1in-\\oddsidemargin-\\hoffset-\\textwidth-\\marginparsep-5mm\\relax}}

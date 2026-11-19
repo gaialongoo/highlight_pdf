@@ -9,6 +9,8 @@ Secondo paragrafo con \emph{enfasi}, citazione \cite{k} e riferimento \ref{s}.
 Accenti: perch\'e citt\`a \evid[evidRosa]{gi\`a evidenziato} qui.
 La definizione di spazio vettoriale è importante.
 Un'altra definizione di spazio vettoriale, ripetuta.
+Il costo è $\Theta(n \log n)$ con $\varepsilon>0$ e $\sin\alpha$.
+Vale $a \leq b$, la serie $\sum_k$ diverge a $\infty$ e $x \neq y$, ma~non sempre.
 `;
 
 const pick = (pdf: string, lines: number[] = []) => {
@@ -54,6 +56,20 @@ test('sceglie l’occorrenza più vicina alla riga di SyncTeX', () => {
   assert.ok(src.slice(0, a.start).split('\n').length - 1 === 6);
   const b = locate(src, 'definizione di spazio vettoriale', [5], 0)!;
   assert.ok(src.slice(0, b.start).split('\n').length - 1 === 5);
+});
+
+test('lettere greche e operatori matematici', () => {
+  assert.equal(pick('Θ'), '\\Theta');
+  assert.equal(pick('costo è Θ(n log n)'), 'costo è $\\Theta(n \\log n)');
+  assert.equal(pick('ε > 0 e sin α'), '\\varepsilon>0$ e $\\sin\\alpha');
+});
+
+test('selezione di soli simboli matematici', () => {
+  assert.equal(pick('≤'), '\\leq');
+  assert.equal(pick('∑'), '\\sum');
+  assert.equal(pick('∞'), '\\infty');
+  assert.equal(pick('≠'), '\\neq');
+  assert.equal(pick('a ≤ b'), 'a \\leq b');
 });
 
 test('la nota a piè non entra nel testo normalizzato', () => {

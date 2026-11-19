@@ -68,7 +68,7 @@ export async function checkPreamble(ctx: vscode.ExtensionContext, rootFile: stri
     ed.replace(doc.uri, new vscode.Range(0, 0, doc.lineCount, 0), upgraded);
     await vscode.workspace.applyEdit(ed);
     vscode.window.showInformationMessage(
-      `Ho aggiornato la definizione di \\${comando} nel preambolo di ${path.basename(rootFile)}: ora supporta le note \\${comando}[colore][nota]{testo}.`);
+      `Ho aggiornato la definizione di \\${comando} nel preambolo di ${path.basename(rootFile)}: ora funziona anche dentro le formule e supporta le note \\${comando}[colore][nota]{testo}.`);
     return;
   }
   if (info.definesEvid && info.inputsColors) {

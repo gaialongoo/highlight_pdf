@@ -66,7 +66,6 @@ body {
    quindi il testo resta nero e nitido sopra il colore, come in Word. */
 .overlay { position: absolute; inset: 0; pointer-events: none; z-index: 1; mix-blend-mode: multiply; }
 .mark { position: absolute; border-radius: 1px; }
-.mark.fresh { animation: evid-in .18s ease-out; }
 .mark.removing { display: none; }
 .flash {
   position: absolute; left: 0; right: 0; height: 0; z-index: 3; pointer-events: none;
@@ -74,8 +73,6 @@ body {
   animation: evid-flash 1.6s ease-out forwards;
 }
 @keyframes evid-flash { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes evid-in { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
-
 /* ---- text layer di pdf.js (da pdf_viewer.css) ---------------------------------- */
 .textLayer {
   position: absolute; text-align: initial; inset: 0; overflow: clip; opacity: 1; line-height: 1;
