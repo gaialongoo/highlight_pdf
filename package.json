@@ -1,0 +1,531 @@
+{
+  "name": "evidenziatore-latex",
+  "displayName": "Evidenziatore LaTeX",
+  "description": "Evidenzia gli appunti LaTeX con un clic, nel PDF o nel .tex: le evidenziazioni finiscono nel sorgente come \\evid{...} e sopravvivono a ogni ricompilazione.",
+  "version": "0.3.0",
+  "publisher": "gaialongoo",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "latex",
+    "highlight",
+    "evidenziatore",
+    "appunti",
+    "soul",
+    "lua-ul"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:latex",
+    "onCustomEditor:evid.pdfViewer",
+    "onView:evid.lista"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "evid.highlight",
+        "title": "Evidenzia",
+        "category": "Evidenziatore",
+        "icon": {
+          "light": "media/evidenzia-light.svg",
+          "dark": "media/evidenzia-dark.svg"
+        }
+      },
+      {
+        "command": "evid.highlightWithColor",
+        "title": "Evidenzia con colore…",
+        "category": "Evidenziatore",
+        "icon": "$(symbol-color)"
+      },
+      {
+        "command": "evid.remove",
+        "title": "Rimuovi evidenziazione",
+        "category": "Evidenziatore",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "evid.pickColor",
+        "title": "Scegli colore attivo",
+        "category": "Evidenziatore"
+      },
+      {
+        "command": "evid.moreColors",
+        "title": "Altro colore… (palette completa)",
+        "category": "Evidenziatore"
+      },
+      {
+        "command": "evid.editLegend",
+        "title": "Modifica legenda dei colori",
+        "category": "Evidenziatore"
+      },
+      {
+        "command": "evid.insertPreamble",
+        "title": "Inserisci definizione \\evid nel preambolo",
+        "category": "Evidenziatore"
+      },
+      {
+        "command": "evid.compileNow",
+        "title": "Compila adesso",
+        "category": "Evidenziatore",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "evid.showEngine",
+        "title": "Mostra compilatore rilevato",
+        "category": "Evidenziatore"
+      },
+      {
+        "command": "evid.openPdf",
+        "title": "Apri PDF per evidenziare",
+        "category": "Evidenziatore",
+        "icon": "$(file-pdf)"
+      },
+      {
+        "command": "evid.addNote",
+        "title": "Aggiungi/modifica nota",
+        "category": "Evidenziatore",
+        "icon": "$(note)"
+      },
+      {
+        "command": "evid.summary",
+        "title": "Genera riassunto delle evidenziazioni",
+        "category": "Evidenziatore",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "evid.compileClean",
+        "title": "Compila PDF pulito (senza evidenziazioni)",
+        "category": "Evidenziatore",
+        "icon": "$(file-pdf)"
+      },
+      {
+        "command": "evid.importAnnotations",
+        "title": "Importa evidenziazioni da un PDF annotato",
+        "category": "Evidenziatore",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "evid.showInPdf",
+        "title": "Mostra nel PDF",
+        "category": "Evidenziatore",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "evid.tree.open",
+        "title": "Apri",
+        "category": "Evidenziatore"
+      },
+      {
+        "command": "evid.tree.remove",
+        "title": "Rimuovi evidenziazione",
+        "category": "Evidenziatore",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "evid.tree.recolor",
+        "title": "Cambia colore…",
+        "category": "Evidenziatore",
+        "icon": "$(symbol-color)"
+      },
+      {
+        "command": "evid.tree.note",
+        "title": "Nota…",
+        "category": "Evidenziatore",
+        "icon": "$(note)"
+      },
+      {
+        "command": "evid.tree.groupBySection",
+        "title": "Raggruppa per colore (ora: per sezione)",
+        "category": "Evidenziatore",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "evid.tree.groupByColor",
+        "title": "Raggruppa per sezione (ora: per colore)",
+        "category": "Evidenziatore",
+        "icon": "$(symbol-color)"
+      },
+      {
+        "command": "evid.tree.filter",
+        "title": "Filtra per colore…",
+        "category": "Evidenziatore",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "evid.tree.search",
+        "title": "Cerca…",
+        "category": "Evidenziatore",
+        "icon": "$(search)"
+      },
+      {
+        "command": "evid.tree.clearFilter",
+        "title": "Togli filtri",
+        "category": "Evidenziatore",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "evid.tree.refresh",
+        "title": "Aggiorna",
+        "category": "Evidenziatore",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "evid.openPdf",
+          "when": "editorLangId == latex",
+          "group": "navigation@-3"
+        },
+        {
+          "command": "evid.highlight",
+          "when": "editorLangId == latex",
+          "group": "navigation@-2"
+        },
+        {
+          "command": "evid.highlightWithColor",
+          "when": "editorLangId == latex",
+          "group": "navigation@-1"
+        },
+        {
+          "command": "evid.openPdf",
+          "when": "activeCustomEditorId == latex-workshop-pdf-hook",
+          "group": "navigation@-1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "evid.highlight",
+          "when": "editorLangId == latex && editorHasSelection && !evid.inEvid",
+          "group": "0_evid@1"
+        },
+        {
+          "command": "evid.highlightWithColor",
+          "when": "editorLangId == latex && (editorHasSelection || evid.inEvid)",
+          "group": "0_evid@2"
+        },
+        {
+          "command": "evid.addNote",
+          "when": "editorLangId == latex && evid.inEvid",
+          "group": "0_evid@3"
+        },
+        {
+          "command": "evid.remove",
+          "when": "editorLangId == latex && evid.inEvid",
+          "group": "0_evid@4"
+        },
+        {
+          "command": "evid.showInPdf",
+          "when": "editorLangId == latex",
+          "group": "0_evid@5"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "evid.highlight",
+          "when": "editorLangId == latex"
+        },
+        {
+          "command": "evid.highlightWithColor",
+          "when": "editorLangId == latex"
+        },
+        {
+          "command": "evid.remove",
+          "when": "editorLangId == latex"
+        },
+        {
+          "command": "evid.insertPreamble",
+          "when": "editorLangId == latex"
+        },
+        {
+          "command": "evid.showEngine",
+          "when": "editorLangId == latex"
+        },
+        {
+          "command": "evid.openPdf"
+        },
+        {
+          "command": "evid.tree.open",
+          "when": "false"
+        },
+        {
+          "command": "evid.tree.remove",
+          "when": "false"
+        },
+        {
+          "command": "evid.tree.recolor",
+          "when": "false"
+        },
+        {
+          "command": "evid.tree.note",
+          "when": "false"
+        },
+        {
+          "command": "evid.tree.groupBySection",
+          "when": "false"
+        },
+        {
+          "command": "evid.tree.groupByColor",
+          "when": "false"
+        },
+        {
+          "command": "evid.tree.filter",
+          "when": "false"
+        },
+        {
+          "command": "evid.tree.search",
+          "when": "false"
+        },
+        {
+          "command": "evid.tree.clearFilter",
+          "when": "false"
+        },
+        {
+          "command": "evid.tree.refresh",
+          "when": "false"
+        },
+        {
+          "command": "evid.addNote",
+          "when": "editorLangId == latex"
+        },
+        {
+          "command": "evid.showInPdf",
+          "when": "editorLangId == latex"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "evid.openPdf",
+          "when": "resourceExtname =~ /^\\.pdf$/i",
+          "group": "navigation@9"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "evid.tree.groupByColor",
+          "when": "view == evid.lista && evid.treeGroup == colore",
+          "group": "navigation@1"
+        },
+        {
+          "command": "evid.tree.groupBySection",
+          "when": "view == evid.lista && evid.treeGroup != colore",
+          "group": "navigation@1"
+        },
+        {
+          "command": "evid.tree.filter",
+          "when": "view == evid.lista",
+          "group": "navigation@2"
+        },
+        {
+          "command": "evid.tree.search",
+          "when": "view == evid.lista",
+          "group": "navigation@3"
+        },
+        {
+          "command": "evid.tree.refresh",
+          "when": "view == evid.lista",
+          "group": "navigation@4"
+        },
+        {
+          "command": "evid.tree.clearFilter",
+          "when": "view == evid.lista",
+          "group": "1_filtri"
+        },
+        {
+          "command": "evid.summary",
+          "when": "view == evid.lista",
+          "group": "2_azioni@1"
+        },
+        {
+          "command": "evid.compileClean",
+          "when": "view == evid.lista",
+          "group": "2_azioni@2"
+        },
+        {
+          "command": "evid.importAnnotations",
+          "when": "view == evid.lista",
+          "group": "2_azioni@3"
+        },
+        {
+          "command": "evid.openPdf",
+          "when": "view == evid.lista",
+          "group": "2_azioni@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "evid.tree.note",
+          "when": "view == evid.lista && viewItem =~ /^evidItem/",
+          "group": "inline@1"
+        },
+        {
+          "command": "evid.tree.recolor",
+          "when": "view == evid.lista && viewItem =~ /^evidItem/",
+          "group": "inline@2"
+        },
+        {
+          "command": "evid.tree.remove",
+          "when": "view == evid.lista && viewItem =~ /^evidItem/",
+          "group": "inline@3"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "evid.highlight",
+        "key": "ctrl+shift+h",
+        "mac": "cmd+shift+h",
+        "when": "editorTextFocus && editorLangId == latex"
+      },
+      {
+        "command": "evid.highlightWithColor",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h",
+        "when": "editorTextFocus && editorLangId == latex"
+      }
+    ],
+    "configuration": {
+      "title": "Evidenziatore LaTeX",
+      "properties": {
+        "evid.comando": {
+          "type": "string",
+          "default": "evid",
+          "description": "Nome del comando LaTeX usato per evidenziare (senza \\)."
+        },
+        "evid.colorePredefinito": {
+          "type": "string",
+          "default": "evidGiallo",
+          "description": "Colore usato da \\evid{...} senza argomento facoltativo."
+        },
+        "evid.compilatore": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "pdflatex",
+            "lualatex"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Rileva da % !TEX program, pacchetti del preambolo e ricetta di LaTeX Workshop",
+            "pdfLaTeX con soul (\\hl)",
+            "LuaLaTeX con lua-ul (\\highLight)"
+          ],
+          "description": "Compilatore degli appunti. Con pdfLaTeX le formule vengono lasciate fuori da \\hl."
+        },
+        "evid.fileColori": {
+          "type": "string",
+          "default": "evid-colori",
+          "description": "File (accanto al .tex principale) con le \\definecolor gestite dall'estensione."
+        },
+        "evid.legenda": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Significato dei colori, es. `{ \"evidRosa\": \"Definizioni\", \"evidAzzurro\": \"Teoremi\" }`. Compare nel selettore, nei tooltip e in `\\legendaevid`."
+        },
+        "evid.ricompilazione.modo": {
+          "type": "string",
+          "enum": [
+            "inattivita",
+            "conteggio",
+            "manuale"
+          ],
+          "default": "inattivita",
+          "enumDescriptions": [
+            "Compila dopo alcuni secondi senza nuove evidenziazioni",
+            "Compila ogni N evidenziazioni",
+            "Solo col pulsante \"Compila adesso\""
+          ],
+          "description": "Quando ricompilare dopo aver evidenziato."
+        },
+        "evid.ricompilazione.secondi": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "description": "Secondi di inattività prima di ricompilare (modo \"inattivita\")."
+        },
+        "evid.ricompilazione.ogniN": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Numero di evidenziazioni dopo cui ricompilare (modo \"conteggio\")."
+        },
+        "evid.decorazioni.testoScuro": {
+          "type": "boolean",
+          "default": true,
+          "description": "Con il tema scuro, scrive in nero il testo evidenziato per renderlo leggibile sullo sfondo pastello."
+        },
+        "evid.pdf.synctex": {
+          "type": "string",
+          "default": "",
+          "description": "Percorso di synctex.exe. Vuoto = cerca nel PATH e accanto al pdflatex di LaTeX Workshop."
+        },
+        "evid.pdf.finestraRighe": {
+          "type": "number",
+          "default": 8,
+          "minimum": 0,
+          "description": "Quante righe intorno a quella indicata da SyncTeX esaminare per trovare il testo selezionato nel PDF."
+        }
+      }
+    },
+    "customEditors": [
+      {
+        "viewType": "evid.pdfViewer",
+        "displayName": "Evidenziatore PDF",
+        "selector": [
+          {
+            "filenamePattern": "*.pdf"
+          },
+          {
+            "filenamePattern": "*.PDF"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "evidenziatore",
+          "title": "Evidenziatore",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "evidenziatore": [
+        {
+          "id": "evid.lista",
+          "name": "Evidenziazioni",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "evid.lista",
+        "contents": "Apri il file .tex degli appunti, oppure il PDF con l'Evidenziatore.\n[Apri PDF per evidenziare](command:evid.openPdf)\n[Importa da un PDF annotato](command:evid.importAnnotations)"
+      }
+    ]
+  },
+  "scripts": {
+    "copy-pdfjs": "node -e \"const fs=require('fs');for(const [d,s,fs2] of [['media/pdfjs','build',['pdf.min.mjs','pdf.worker.min.mjs']],['media/pdfjs-node','legacy/build',['pdf.mjs','pdf.worker.mjs']]]){fs.mkdirSync(d,{recursive:true});for(const f of fs2)fs.copyFileSync('node_modules/pdfjs-dist/'+s+'/'+f,d+'/'+f)}\"",
+    "compile": "npm run copy-pdfjs && tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "tsc -p ./ && node --test out/test/",
+    "package": "npm run compile && npx --yes @vscode/vsce package --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/vscode": "~1.90.0",
+    "typescript": "^5.9.0",
+    "pdfjs-dist": "^4.10.38"
+  }
+}
