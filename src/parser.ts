@@ -274,9 +274,10 @@ export function safeSegments(text: string, splitMath: boolean): Segment[] {
     let s = p.start, e = p.end;
     while (s < e && /\s/.test(text[s])) { s++; }
     while (e > s && /\s/.test(text[e - 1])) { e--; }
-    // non lasciare un "\comando" orfano alla fine (il suo argomento è stato tagliato)
+    // non lasciare un "\comando" orfano alla fine (il suo argomento è stato tagliato
+    // via: il pezzo finisce proprio su una graffa aperta). "\Theta" da solo va bene.
     const tail = /\\[A-Za-z@]+\*?\s*(\[[^\]]*\])?\s*$/.exec(text.slice(s, e));
-    if (tail && !isEscaped(text, s + tail.index)) {
+    if (tail && !isEscaped(text, s + tail.index) && text[p.end] === '{') {
       e = s + tail.index;
       while (e > s && /\s/.test(text[e - 1])) { e--; }
     }
@@ -405,6 +406,86 @@ export function expandToMath(text: string, from: number, to: number, regions = m
   return { start: s, end: e };
 }
 
+/** Posizione della '{' che apre la graffa chiusa in `close` (cercando all'indietro). */
+function findOpening(text: string, close: number, lo: number): number {
+  let depth = 0;
+  for (let k = close; k >= lo; k--) {
+    if ((text[k] === '{' || text[k] === '}') && isEscaped(text, k)) { continue; }
+    if (text[k] === '}') { depth++; }
+    else if (text[k] === '{') { depth--; if (depth === 0) { return k; } }
+  }
+  return lo;
+}
+
+/** Partendo da una '{', include ciò che la regge: gruppi precedenti, \comando, x^ / x_. */
+function groupHead(text: string, s: number, lo: number): number {
+  for (let guard = 0; guard < 20; guard++) {
+    let k = s;
+    while (k > lo && /\s/.test(text[k - 1])) { k--; }
+    const p = text[k - 1];
+    if (k <= lo) { return s; }
+    if (p === '}' && !isEscaped(text, k - 1)) { s = findOpening(text, k - 1, lo); continue; } // \frac{a}{b}
+    if (/[A-Za-z]/.test(p)) {
+      let j = k;
+      while (j > lo && /[A-Za-z]/.test(text[j - 1])) { j--; }
+      return text[j - 1] === '\\' ? j - 1 : s;
+    }
+    if ((p === '^' || p === '_') && !isEscaped(text, k - 1)) {
+      // includi anche la base: x^{..}, \alpha_{..}, {..}^{..}
+      let b = k - 1;
+      while (b > lo && /\s/.test(text[b - 1])) { b--; }
+      const q = text[b - 1];
+      if (q === '}') { s = findOpening(text, b - 1, lo); continue; }
+      if (/[A-Za-z]/.test(q)) {
+        let j = b;
+        while (j > lo && /[A-Za-z]/.test(text[j - 1])) { j--; }
+        return text[j - 1] === '\\' ? j - 1 : b - 1;
+      }
+      return b > lo ? b - 1 : b;
+    }
+    return s;
+  }
+  return s;
+}
+
+/**
+ * Dentro una formula non si può spezzare: allarga la selezione finché le graffe
+ * sono bilanciate e non finisce con un ^ o _ senza il suo argomento.
+ */
+export function balanceInMath(text: string, from: number, to: number, lo: number, hi: number): Segment {
+  let s = from, e = to;
+  for (let iter = 0; iter < 10; iter++) {
+    let changed = false;
+    const open: number[] = [];
+    let strayClose = -1;
+    for (let i = s; i < e; i++) {
+      const c = text[i];
+      if ((c === '{' || c === '}') && isEscaped(text, i)) { continue; }
+      if (c === '{') { open.push(i); }
+      else if (c === '}') { if (open.length) { open.pop(); } else if (strayClose < 0) { strayClose = i; } }
+    }
+    if (open.length) {
+      const c = findClosing(text, open[0]);
+      e = Math.min(hi, c < 0 ? hi : c + 1); changed = true;
+    }
+    if (strayClose >= 0) {
+      s = groupHead(text, findOpening(text, strayClose, lo), lo); changed = true;
+    }
+    let t = e;
+    while (t > s && /\s/.test(text[t - 1])) { t--; }
+    if ((text[t - 1] === '^' || text[t - 1] === '_') && !isEscaped(text, t - 1)) {
+      let k = t;
+      while (k < hi && /\s/.test(text[k])) { k++; }
+      if (text[k] === '{') { const c = findClosing(text, k); e = c < 0 ? hi : c + 1; }
+      else if (text[k] === '\\') { k++; while (k < hi && /[A-Za-z]/.test(text[k])) { k++; } e = Math.max(k, t + 1); }
+      else { e = Math.min(hi, k + 1); }
+      changed = true;
+    }
+    if (!changed) { break; }
+  }
+  return { start: Math.max(lo, s), end: Math.min(hi, e) };
+}
+
 export function evidOpen(opts: { cmd: string; color?: string; note?: string }): string {
   let s = '\\' + opts.cmd;
   if (opts.color || opts.note !== undefined) { s += `[${opts.color ?? ''}]`; }
@@ -427,6 +508,9 @@ export function buildWrap(text: string, from: number, to: number, opts: WrapOpti
     sel = n;
     if (same) { break; }
   }
+  // tutta dentro una formula: niente graffe tagliate né ^ / _ orfani
+  const host = regions.find(r => sel.start >= r.inStart && sel.end <= r.inEnd);
+  if (host) { sel = balanceInMath(text, sel.start, sel.end, host.inStart, host.inEnd); }
   const original = text.slice(sel.start, sel.end);
   const clean = unwrapAll(original, opts.cmd);
   const segs = safeSegments(clean, opts.splitMath);

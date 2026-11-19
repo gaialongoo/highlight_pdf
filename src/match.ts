@@ -192,7 +192,7 @@ export interface FoundRange { start: number; end: number; exact: boolean; }
  * quella più vicina a `nearOffset` (offset ORIGINALE). Se non trova la frase
  * intera prova inizio + fine separatamente.
  */
-export function findInNormalized(n: Normalized, needle: string, nearOffset: number): FoundRange | undefined {
+export function findInNormalized(n: Normalized, needle: string, nearOffset: number, subsequence = false): FoundRange | undefined {
   if (!needle) { return undefined; }
   const hay = n.norm;
   const dist = (i: number) => Math.abs(n.startMap[i] - nearOffset);
@@ -204,6 +204,21 @@ export function findInNormalized(n: Normalized, needle: string, nearOffset: numb
   }
   if (best >= 0) {
     return { start: n.startMap[best], end: n.endMap[best + needle.length - 1], exact: true };
+  }
+
+  // 1b. (solo vicino al punto di SyncTeX) tutti i caratteri, in ordine, con qualcosa
+  //     in più in mezzo: nelle formule il PDF perde pezzi (gli estremi di ∑, ∫…)
+  if (subsequence && needle.length >= 4) {
+    const L = needle.length;
+    const maxLen = Math.ceil(L * 1.5) + 10;
+    let cand: { s: number; e: number } | undefined;
+    for (let i = hay.indexOf(needle[0]); i >= 0; i = hay.indexOf(needle[0], i + 1)) {
+      let q = 0, j = i;
+      while (j < hay.length && q < L && j - i < maxLen) { if (hay[j] === needle[q]) { q++; } j++; }
+      if (q < L) { continue; }
+      if (!cand || j - i < cand.e - cand.s || (j - i === cand.e - cand.s && dist(i) < dist(cand.s))) { cand = { s: i, e: j }; }
+    }
+    if (cand) { return { start: n.startMap[cand.s], end: n.endMap[cand.e - 1], exact: false }; }
   }
 
   // 2. inizio e fine separati (formule, riferimenti, citazioni rese diversamente)
@@ -255,7 +270,7 @@ export function locate(text: string, pdfText: string, lines: number[], window: n
     if (lines.length) {
       const from = lineOffset(text, Math.max(0, Math.min(...lines) - window));
       const to = lineOffset(text, Math.max(...lines) + window + 1);
-      r = findInNormalized(normalizeSource(text, from, to, symbols), needle, near);
+      r = findInNormalized(normalizeSource(text, from, to, symbols), needle, near, true);
     }
     return r ?? findInNormalized(normalizeSource(text, 0, text.length, symbols), needle, near);
   };

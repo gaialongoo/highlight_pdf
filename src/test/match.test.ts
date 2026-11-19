@@ -64,6 +64,12 @@ test('lettere greche e operatori matematici', () => {
   assert.equal(pick('ε > 0 e sin α'), '\\varepsilon>0$ e $\\sin\\alpha');
 });
 
+test('formula con estremi di ∑ persi dal PDF: tutta la formula', () => {
+  const t = 'prima\n\\[H(X) = - \\sum_{i=1}^n P(X=i) \\log_2 P(X=i)\\]\ndopo\n';
+  const r = locate(t, 'H ( X ) = − P ( X = i ) log 2 P ( X = i )', [1], 3)!;
+  assert.equal(t.slice(r.start, r.end), 'H(X) = - \\sum_{i=1}^n P(X=i) \\log_2 P(X=i)');
+});
+
 test('selezione di soli simboli matematici', () => {
   assert.equal(pick('≤'), '\\leq');
   assert.equal(pick('∑'), '\\sum');

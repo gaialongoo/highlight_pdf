@@ -157,6 +157,17 @@ test('ambienti matematici: si spezza su & e \\\\', () => {
   assert.equal(wrap(src, 'a &= b'), R`\begin{align} \evid{a} &\evid{= b} \\ c &= d \end{align}`);
 });
 
+test('formula fatta solo di un comando: $\\Theta$', () => {
+  assert.equal(wrap(R`parametri $\Theta$ ok`, R`parametri $\Theta`), R`\evid{parametri} $\evid{\Theta}$ ok`);
+});
+
+test('dentro una formula le graffe tagliate allargano la selezione', () => {
+  const src = R`\[\langle x^{(i)}, y^{(i)} \rangle\]`;
+  assert.equal(wrap(src, R`x^{(i)}, y^{(i`), R`\[\langle \evid{x^{(i)}, y^{(i)}} \rangle\]`);
+  assert.equal(wrap(src, R`(i)}, y`), R`\[\langle \evid{x^{(i)}, y}^{(i)} \rangle\]`);
+  assert.equal(wrap(R`\[ \text{Temp} \to \text{Play} \]`, R`Temp} \to \text{Pl`), R`\[ \evid{\text{Temp} \to \text{Play}} \]`);
+});
+
 test('esponenti e \\left \\right', () => {
   assert.equal(wrap('$x^2$', '2'), R`$x^{\evid{2}}$`);
   assert.equal(wrap(R`$\left( a + b \right)$`, R`\left( a + b \right)`), R`$\left( \evid{a + b} \right)$`);
