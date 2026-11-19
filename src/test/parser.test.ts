@@ -192,6 +192,17 @@ La probabilità`), src.replace('La probabilità', R`\evid{La probabilità}`));
   assert.equal(wrap('prima\n\\noindent\nTesto', '\\noindent\nTesto'), 'prima\n\\noindent\n\\evid{Testo}');
 });
 
+test('immagini mai dentro \\evid', () => {
+  const src = R`testo prima
+    \centering
+    \includegraphics[width=\linewidth]{img/a.png}
+fine`;
+  assert.equal(wrap(src, src), R`\evid{testo prima}
+    \centering
+    \includegraphics[width=\linewidth]{img/a.png}
+\evid{fine}`);
+});
+
 test('esponenti e \\left \\right', () => {
   assert.equal(wrap('$x^2$', '2'), R`$x^{\evid{2}}$`);
   assert.equal(wrap(R`$\left( a + b \right)$`, R`\left( a + b \right)`), R`$\left( \evid{a + b} \right)$`);

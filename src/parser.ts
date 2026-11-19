@@ -229,7 +229,7 @@ export function safeSegments(text: string, splitMath: boolean): Segment[] {
     addCut(m.index, m.index + m[0].length);
   }
   // comandi che non devono MAI finire dentro \evid: escludi comando + argomento
-  const reArg = /\\(?:part|chapter|section|subsection|subsubsection|paragraph|label|caption|footnote|marginpar|index)\*?\s*(?:\[[^\]]*\])?\s*\{/g;
+  const reArg = /\\(?:part|chapter|section|subsection|subsubsection|paragraph|label|caption|footnote|marginpar|index|includegraphics|input|include|vspace|hspace)\*?\s*(?:\[[^\]]*\])*\s*\{/g;
   for (let m: RegExpExecArray | null; (m = reArg.exec(text));) {
     if (isEscaped(text, m.index)) { continue; }
     const close = findClosing(text, m.index + m[0].length - 1);
