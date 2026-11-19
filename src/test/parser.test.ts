@@ -168,6 +168,14 @@ test('dentro una formula le graffe tagliate allargano la selezione', () => {
   assert.equal(wrap(R`\[ \text{Temp} \to \text{Play} \]`, R`Temp} \to \text{Pl`), R`\[ \evid{\text{Temp} \to \text{Play}} \]`);
 });
 
+test('mai dentro il titolo di un ambiente \\begin{..}[..]', () => {
+  const src = R`\begin{esempio}[Coefficiente di Gini]
+Ora riprendendo`;
+  assert.equal(wrap(src, 'Coefficiente di Gini'), src);
+  assert.equal(wrap(src, 'Gini]\nOra'), R`\begin{esempio}[Coefficiente di Gini]
+\evid{Ora} riprendendo`);
+});
+
 test('esponenti e \\left \\right', () => {
   assert.equal(wrap('$x^2$', '2'), R`$x^{\evid{2}}$`);
   assert.equal(wrap(R`$\left( a + b \right)$`, R`\left( a + b \right)`), R`$\left( \evid{a + b} \right)$`);

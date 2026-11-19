@@ -70,6 +70,13 @@ test('formula con estremi di ∑ persi dal PDF: tutta la formula', () => {
   assert.equal(t.slice(r.start, r.end), 'H(X) = - \\sum_{i=1}^n P(X=i) \\log_2 P(X=i)');
 });
 
+test('mai nel preambolo', () => {
+  const t = '\\documentclass{article}\n\\usetikzlibrary{positioning}\n\\setlength{\\x}{3em}\n\\begin{document}\nTesto con positioning qui.\n\\end{document}\n';
+  const r = locate(t, 'positioning', [1], 3)!;
+  assert.ok(r.start > t.indexOf('\\begin{document}'));
+  assert.equal(locate(t, '3em', [2], 3), undefined);
+});
+
 test('selezione di soli simboli matematici', () => {
   assert.equal(pick('≤'), '\\leq');
   assert.equal(pick('∑'), '\\sum');

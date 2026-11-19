@@ -262,17 +262,20 @@ export function lineOffset(text: string, line: number): number {
  * indicate da SyncTeX (± finestra) e poi in tutto il file.
  */
 export function locate(text: string, pdfText: string, lines: number[], window: number): FoundRange | undefined {
-  const near = lines.length ? lineOffset(text, Math.min(...lines)) : 0;
+  // il preambolo non compare nel PDF: non cercarci mai (es. "3em", "positioning")
+  const bd = /\\begin\s*\{document\}/.exec(text);
+  const body = bd ? bd.index + bd[0].length : 0;
+  const near = Math.max(body, lines.length ? lineOffset(text, Math.min(...lines)) : 0);
   const search = (symbols: boolean) => {
     const needle = symbols ? simplify(pdfText, true) : normalizePdf(pdfText);
     if (needle.length < 1) { return undefined; }
     let r: FoundRange | undefined;
     if (lines.length) {
-      const from = lineOffset(text, Math.max(0, Math.min(...lines) - window));
+      const from = Math.max(body, lineOffset(text, Math.max(0, Math.min(...lines) - window)));
       const to = lineOffset(text, Math.max(...lines) + window + 1);
-      r = findInNormalized(normalizeSource(text, from, to, symbols), needle, near, true);
+      if (to > from) { r = findInNormalized(normalizeSource(text, from, to, symbols), needle, near, true); }
     }
-    return r ?? findInNormalized(normalizeSource(text, 0, text.length, symbols), needle, near);
+    return r ?? findInNormalized(normalizeSource(text, body, text.length, symbols), needle, near);
   };
   // prima solo lettere e cifre (la più tollerante); i simboli servono quando la
   // selezione è fatta solo di simboli (≤, ∞…) o le lettere da sole non bastano.

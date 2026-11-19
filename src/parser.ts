@@ -406,6 +406,36 @@ export function expandToMath(text: string, from: number, to: number, regions = m
   return { start: s, end: e };
 }
 
+/** "\begin{nome}[..]{..}": intervallo dal \begin alla fine dei suoi argomenti. */
+export function beginArgs(text: string): Segment[] {
+  const out: Segment[] = [];
+  const re = /\\begin\s*\{[^}]*\}/g;
+  for (let m: RegExpExecArray | null; (m = re.exec(text));) {
+    if (isEscaped(text, m.index)) { continue; }
+    let k = m.index + m[0].length;
+    let end = k;
+    for (;;) {
+      let j = k;
+      while (text[j] === ' ' || text[j] === '\t') { j++; }
+      if (text[j] === '[') {
+        let depth = 0, q = j;
+        for (; q < text.length; q++) {
+          if (text[q] === '{' && !isEscaped(text, q)) { depth++; }
+          else if (text[q] === '}' && !isEscaped(text, q)) { depth--; }
+          else if (text[q] === ']' && depth === 0) { break; }
+        }
+        k = end = q + 1;
+      } else if (text[j] === '{') {
+        const c = findClosing(text, j);
+        if (c < 0) { break; }
+        k = end = c + 1;
+      } else { break; }
+    }
+    if (end > m.index + m[0].length) { out.push({ start: m.index, end }); }
+  }
+  return out;
+}
+
 /** Posizione della '{' che apre la graffa chiusa in `close` (cercando all'indietro). */
 function findOpening(text: string, close: number, lo: number): number {
   let depth = 0;
@@ -508,6 +538,16 @@ export function buildWrap(text: string, from: number, to: number, opts: WrapOpti
     sel = n;
     if (same) { break; }
   }
+  // mai dentro gli argomenti di \begin{..}[..]{..} (titoli dei box, colonne…):
+  // lì \hl rompe la compilazione. Si accorcia la selezione per restarne fuori.
+  for (const f of beginArgs(text)) {
+    if (f.start < sel.end && sel.start < f.end) {
+      if (sel.start >= f.start && sel.end <= f.end) { return undefined; }
+      if (sel.start < f.start) { sel = { start: sel.start, end: Math.min(sel.end, f.start) }; }
+      else { sel = { start: Math.max(sel.start, f.end), end: sel.end }; }
+    }
+  }
+  if (sel.end <= sel.start) { return undefined; }
   // tutta dentro una formula: niente graffe tagliate né ^ / _ orfani
   const host = regions.find(r => sel.start >= r.inStart && sel.end <= r.inEnd);
   if (host) { sel = balanceInMath(text, sel.start, sel.end, host.inStart, host.inEnd); }
