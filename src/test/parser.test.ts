@@ -176,6 +176,22 @@ Ora riprendendo`;
 \evid{Ora} riprendendo`);
 });
 
+test('mai dentro tikzpicture; \\noindent resta fuori', () => {
+  const src = R`\begin{tikzpicture}
+  \node (ea) at (7.3,2.8) {Event A};
+  \draw[->] (ea) -- (4,1.75);
+\end{tikzpicture}
+\noindent
+La probabilità di A`;
+  assert.equal(wrap(src, 'Event A'), src);
+  assert.equal(wrap(src, R`Event A};
+  \draw[->] (ea) -- (4,1.75);
+\end{tikzpicture}
+\noindent
+La probabilità`), src.replace('La probabilità', R`\evid{La probabilità}`));
+  assert.equal(wrap('prima\n\\noindent\nTesto', '\\noindent\nTesto'), 'prima\n\\noindent\n\\evid{Testo}');
+});
+
 test('esponenti e \\left \\right', () => {
   assert.equal(wrap('$x^2$', '2'), R`$x^{\evid{2}}$`);
   assert.equal(wrap(R`$\left( a + b \right)$`, R`\left( a + b \right)`), R`$\left( \evid{a + b} \right)$`);

@@ -223,7 +223,7 @@ export function safeSegments(text: string, splitMath: boolean): Segment[] {
   const cuts: Segment[] = [];
   const addCut = (s: number, e: number) => cuts.push({ start: s, end: e });
 
-  const reSep = /\n[ \t]*\n|\\(?:begin|end)\s*\{[^}]*\}(?:\s*\[[^\]]*\])?|\\item\b(?:\s*\[[^\]]*\])?|\\(?:par|hline|newline|newpage|clearpage)\b|\\\\(?:\s*\[[^\]]*\])?|&/g;
+  const reSep = /\n[ \t]*\n|\\(?:begin|end)\s*\{[^}]*\}(?:\s*\[[^\]]*\])?|\\item\b(?:\s*\[[^\]]*\])?|\\(?:par|hline|newline|newpage|clearpage|noindent|indent|centering|raggedright|raggedleft|smallskip|medskip|bigskip|hfill|vfill)\b|\\[vh]space\*?\s*\{[^}]*\}|\\\\(?:\s*\[[^\]]*\])?|&/g;
   for (let m: RegExpExecArray | null; (m = reSep.exec(text));) {
     if ((m[0].startsWith('\\') || m[0] === '&') && isEscaped(text, m.index)) { continue; }
     addCut(m.index, m.index + m[0].length);
@@ -244,6 +244,8 @@ export function safeSegments(text: string, splitMath: boolean): Segment[] {
       i = end;
     }
   }
+  // argomenti di \begin{..}[..]{..} e ambienti di codice/disegno (tikz, verbatim…)
+  for (const f of forbiddenRegions(text)) { addCut(f.start, f.end); }
   // matematica: quella in display non può mai stare dentro \hl; quella in linea
   // solo se richiesto (pdfLaTeX). Il contenuto lo evidenzia buildWrap a parte.
   for (const m of mathRegions(text)) {
@@ -436,6 +438,24 @@ export function beginArgs(text: string): Segment[] {
   return out;
 }
 
+/** Ambienti il cui contenuto è codice o disegno, non testo. */
+const CODE_ENVS = 'tikzpicture|pgfpicture|axis|forest|circuitikz|verbatim|Verbatim|lstlisting|minted|comment|filecontents';
+
+/** Zone dove \evid non deve mai finire: argomenti di \begin e ambienti di codice/disegno. */
+export function forbiddenRegions(text: string): Segment[] {
+  const out = beginArgs(text);
+  const re = new RegExp(`\\\\begin\\s*\\{(${CODE_ENVS})(\\*?)\\}`, 'g');
+  for (let m: RegExpExecArray | null; (m = re.exec(text));) {
+    if (isEscaped(text, m.index) || inComment(text, m.index)) { continue; }
+    const endTag = `\\end{${m[1]}${m[2]}}`;
+    const e = text.indexOf(endTag, m.index + m[0].length);
+    const end = e < 0 ? text.length : e + endTag.length;
+    out.push({ start: m.index, end });
+    re.lastIndex = end;
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
 /** Posizione della '{' che apre la graffa chiusa in `close` (cercando all'indietro). */
 function findOpening(text: string, close: number, lo: number): number {
   let depth = 0;
@@ -538,16 +558,16 @@ export function buildWrap(text: string, from: number, to: number, opts: WrapOpti
     sel = n;
     if (same) { break; }
   }
-  // mai dentro gli argomenti di \begin{..}[..]{..} (titoli dei box, colonne…):
-  // lì \hl rompe la compilazione. Si accorcia la selezione per restarne fuori.
-  for (const f of beginArgs(text)) {
-    if (f.start < sel.end && sel.start < f.end) {
-      if (sel.start >= f.start && sel.end <= f.end) { return undefined; }
-      if (sel.start < f.start) { sel = { start: sel.start, end: Math.min(sel.end, f.start) }; }
-      else { sel = { start: Math.max(sel.start, f.end), end: sel.end }; }
-    }
+  // mai dentro gli argomenti di \begin{..}[..]{..} (titoli dei box, colonne…) né
+  // dentro disegni e codice (tikzpicture, verbatim…): lì \hl rompe la compilazione.
+  // Se la selezione comincia o finisce lì dentro, si accorcia per restarne fuori;
+  // quelli interamente dentro la selezione li salta safeSegments.
+  for (const f of forbiddenRegions(text)) {
+    if (sel.start >= f.start && sel.end <= f.end) { return undefined; }
+    if (sel.start > f.start && sel.start < f.end) { sel = { start: f.end, end: sel.end }; }
+    if (sel.end > f.start && sel.end < f.end) { sel = { start: sel.start, end: f.start }; }
+    if (sel.end <= sel.start) { return undefined; }
   }
-  if (sel.end <= sel.start) { return undefined; }
   // tutta dentro una formula: niente graffe tagliate né ^ / _ orfani
   const host = regions.find(r => sel.start >= r.inStart && sel.end <= r.inEnd);
   if (host) { sel = balanceInMath(text, sel.start, sel.end, host.inStart, host.inEnd); }
