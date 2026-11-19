@@ -66,7 +66,7 @@ body {
    quindi il testo resta nero e nitido sopra il colore, come in Word. */
 .overlay { position: absolute; inset: 0; pointer-events: none; z-index: 1; mix-blend-mode: multiply; }
 .mark { position: absolute; border-radius: 1px; }
-.mark.pending { animation: evid-in .18s ease-out; }
+.mark.fresh { animation: evid-in .18s ease-out; }
 .mark.removing { display: none; }
 .flash {
   position: absolute; left: 0; right: 0; height: 0; z-index: 3; pointer-events: none;

@@ -256,11 +256,15 @@ function mergeLines(rects) {
 function drawOverlays() {
   state.pages.forEach(p => p.overlay && p.overlay.replaceChildren());
   for (const o of state.overlays) {
+    // L'animazione d'ingresso parte solo la prima volta che l'evidenziazione
+    // viene disegnata, non a ogni ridisegno.
+    const fresh = !o.drawn;
+    o.drawn = true;
     for (const r of o.rects) {
       const p = state.pages[r.page - 1];
       if (!p || !p.overlay) { continue; }
       const d = document.createElement('div');
-      d.className = 'mark ' + o.kind;
+      d.className = 'mark ' + o.kind + (fresh ? ' fresh' : '');
       d.style.left = `${(r.x0 / p.w) * 100}%`;
       d.style.top = `${(r.y0 / p.h) * 100}%`;
       d.style.width = `${((r.x1 - r.x0) / p.w) * 100}%`;
