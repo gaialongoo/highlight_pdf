@@ -519,7 +519,7 @@
     "copy-pdfjs": "node -e \"const fs=require('fs');for(const [d,s,fs2] of [['media/pdfjs','build',['pdf.min.mjs','pdf.worker.min.mjs']],['media/pdfjs-node','legacy/build',['pdf.mjs','pdf.worker.mjs']]]){fs.mkdirSync(d,{recursive:true});for(const f of fs2)fs.copyFileSync('node_modules/pdfjs-dist/'+s+'/'+f,d+'/'+f)}\"",
     "compile": "npm run copy-pdfjs && tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "tsc -p ./ && node --test out/test/",
+    "test": "tsc -p ./ && node -e \"const fs=require('fs'),cp=require('child_process'),path=require('path');const f=fs.readdirSync('out/test').filter(x=>x.endsWith('.test.js')).map(x=>path.join('out','test',x));process.exit(cp.spawnSync(process.execPath,['--test',...f],{stdio:'inherit'}).status??1)\"",
     "package": "npm run compile && npx --yes @vscode/vsce package --allow-missing-repository"
   },
   "devDependencies": {

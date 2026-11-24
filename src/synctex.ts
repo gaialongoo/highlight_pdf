@@ -22,6 +22,17 @@ function candidates(): string[] {
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
     out.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'MiKTeX', 'miktex', 'bin', 'x64', 'synctex.exe'));
   }
+  if (process.platform !== 'win32') {
+    // TeX Live installato a mano (non nel PATH di VS Code) e MacTeX
+    const tl = '/usr/local/texlive';
+    try {
+      for (const year of fs.readdirSync(tl).filter(d => /^\d{4}$/.test(d)).sort().reverse()) {
+        const bin = path.join(tl, year, 'bin');
+        try { for (const arch of fs.readdirSync(bin)) { out.push(path.join(bin, arch, 'synctex')); } } catch { /* niente */ }
+      }
+    } catch { /* niente TeX Live in /usr/local */ }
+    out.push('/Library/TeX/texbin/synctex', '/usr/bin/synctex');
+  }
   return out;
 }
 
