@@ -785,6 +785,7 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) { e.preventDefault(); setZoom(state.scale * 1.1); }
   if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); setZoom(state.scale / 1.1); }
   if (e.key === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey) { toggleMode(); }
+  if (e.key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) { vscode.postMessage({ type: 'last' }); }
   if (e.key === 'Enter' && !floating.classList.contains('hidden') && state.lastSelection) { doHighlight(state.lastSelection); }
 });
 
@@ -824,6 +825,7 @@ $('compileBtn').onclick = () => vscode.postMessage({ type: 'compile' });
 $('summaryBtn').onclick = () => vscode.postMessage({ type: 'summary' });
 $('cleanBtn').onclick = () => vscode.postMessage({ type: 'clean' });
 $('importBtn').onclick = () => vscode.postMessage({ type: 'import' });
+$('lastBtn').onclick = () => vscode.postMessage({ type: 'last' });
 
 /** Mostra un punto (da SyncTeX in avanti) e lo fa lampeggiare. */
 function scrollToPoint(page, x, y) {

@@ -26,6 +26,18 @@ export function includedFiles(rootFile: string): string[] {
   return out;
 }
 
+/** L'evidenziazione più in fondo nel documento ("dove ero arrivato"), file inclusi compresi. */
+export async function lastHighlight(rootFile: string): Promise<Item | undefined> {
+  const items = await scanProject(rootFile);
+  return items[items.length - 1];
+}
+
+/** Anteprima breve del testo di un'evidenziazione, per i messaggi. */
+export function preview(it: Item, max = 50): string {
+  const t = it.content.replace(/\\[a-zA-Z]+\*?|[{}$]/g, ' ').replace(/\s+/g, ' ').trim();
+  return t.length > max ? t.slice(0, max - 1) + '…' : t;
+}
+
 /**
  * Tutte le evidenziazioni del progetto, nell'ordine in cui compaiono nel PDF:
  * il file principale più i file inclusi con \input / \include (ricorsivamente).

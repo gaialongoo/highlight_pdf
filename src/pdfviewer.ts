@@ -8,7 +8,7 @@ import { findEvids, EvidMatch } from './parser';
 import { openPalette, pickColor } from './picker';
 import { displayName, EvidColor, PASTELLI } from './colorsfile';
 import { cfg } from './config';
-import { includedFiles } from './project';
+import { includedFiles, lastHighlight, preview } from './project';
 
 interface Pt { x: number; y: number; page?: number; }
 type FromWebview =
@@ -24,6 +24,7 @@ type FromWebview =
   | { type: 'clean' }
   | { type: 'summary' }
   | { type: 'import' }
+  | { type: 'last' }
   | { type: 'state'; page: number; scale: string };
 
 /** PDF che LaTeX Workshop produce per un .tex (rispetta latex-workshop.latex.outDir). */
@@ -170,6 +171,9 @@ class Session implements vscode.Disposable {
         case 'compile':
           await this.provider.hl.recompiler.build(texForPdf(this.pdf.fsPath));
           break;
+        case 'last':
+          await this.goToLast();
+          break;
         case 'clean':
         case 'summary':
         case 'import': {
@@ -273,6 +277,19 @@ class Session implements vscode.Disposable {
 
   get pdfPath() { return this.pdf.fsPath; }
 
+  /** "Dove ero arrivato": scorre il PDF fino all'evidenziazione più in fondo. */
+  async goToLast(): Promise<boolean> {
+    const tex = texForPdf(this.pdf.fsPath);
+    if (!tex) { this.toast('Non trovo il .tex di questo PDF.', 'error'); return false; }
+    const it = await lastHighlight(tex);
+    if (!it) { this.toast('Non ci sono ancora evidenziazioni.'); return false; }
+    const r = await syncView(this.pdf.fsPath, it.file, it.line);
+    if (!r) { this.toast('SyncTeX non trova l\'ultima evidenziazione nel PDF: ricompila.', 'error'); return false; }
+    this.scrollTo(r.page, r.x, r.y);
+    this.toast(`Eri arrivato qui (pag. ${r.page}): «${preview(it)}»`);
+    return true;
+  }
+
   /** Porta il viewer a un punto della pagina e lo fa lampeggiare. */
   scrollTo(page: number, x: number, y: number) {
     this.panel.reveal(undefined, true);
@@ -313,6 +330,16 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider, v
       if (r) { s.scrollTo(r.page, r.x, r.y); return true; }
     }
     return false;
+  }
+
+  /** Se il viewer attivo è uno dei nostri, lo porta all'ultima evidenziazione. */
+  async lastInActiveViewer(): Promise<boolean> {
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    if (!(tab instanceof vscode.TabInputCustom) || tab.viewType !== PdfViewerProvider.viewType) { return false; }
+    const s = [...this.sessions].find(x => x.pdfPath.toLowerCase() === tab.uri.fsPath.toLowerCase());
+    if (!s) { return false; }
+    await s.goToLast();
+    return true;
   }
 
   hasViewerFor(texFile: string): boolean {
@@ -382,6 +409,8 @@ export class PdfViewerProvider implements vscode.CustomReadonlyEditorProvider, v
   <button id="summaryBtn" class="tb" title="Genera il riassunto delle evidenziazioni (PDF o Markdown)">☰ Riassunto</button>
   <button id="cleanBtn" class="tb" title="Compila una copia senza evidenziazioni né note (…-pulito.pdf)">◻ PDF pulito</button>
   <button id="importBtn" class="tb" title="Importa le evidenziazioni da un PDF annotato con Edge/Acrobat">⇩ Importa</button>
+  <span class="sep"></span>
+  <button id="lastBtn" class="tb" title="Vai all'ultima evidenziazione: dove eri arrivato (tasto U)">🔖 Dove ero</button>
   <span class="grow"></span>
   <button id="searchBtn" class="tb icon" title="Cerca nel PDF (Ctrl+F)">⌕</button>
   <button id="zoomOut" class="tb icon" title="Riduci (Ctrl+rotellina)">−</button>

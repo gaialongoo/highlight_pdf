@@ -11,6 +11,7 @@ import { EvidTree, Node } from './tree';
 import { generateSummary, compileClean } from './outputs';
 import { importAnnotations } from './importer';
 import { cfg } from './config';
+import { lastHighlight, preview } from './project';
 
 export function activate(ctx: vscode.ExtensionContext) {
   const store = new ColorStore(ctx);
@@ -209,6 +210,26 @@ export function activate(ctx: vscode.ExtensionContext) {
     if (!await viewer.revealSource(ed.document.uri.fsPath, ed.selection.active.line)) {
       vscode.window.setStatusBarMessage('$(info) SyncTeX non ha trovato questo punto nel PDF (ricompila?)', 3000);
     }
+  });
+
+  // ---- "dove ero arrivato": l'evidenziazione più in fondo ----------------------------
+  reg('evid.lastHighlight', async () => {
+    if (await viewer.lastInActiveViewer()) { return; }
+    const ed = vscode.window.activeTextEditor;
+    const root = ed?.document.languageId === 'latex' ? rootFileOf(ed.document) : tree.root;
+    if (!root) { vscode.window.showWarningMessage('Apri il file .tex degli appunti (o il suo PDF).'); return; }
+    const it = await lastHighlight(root);
+    if (!it) { vscode.window.setStatusBarMessage('$(info) Non ci sono ancora evidenziazioni', 3000); return; }
+    const doc = await vscode.workspace.openTextDocument(it.file);
+    const e = hl.evidAtOffset(doc, it.start + 1);
+    const range = e
+      ? new vscode.Range(doc.positionAt(e.contentStart), doc.positionAt(e.contentEnd))
+      : new vscode.Range(it.line, 0, it.line, 0);
+    const shown = await vscode.window.showTextDocument(doc, { preserveFocus: false, viewColumn: ed?.viewColumn ?? vscode.ViewColumn.One });
+    shown.selection = new vscode.Selection(range.start, range.end);
+    shown.revealRange(range, vscode.TextEditorRevealType.InCenter);
+    void viewer.revealSource(doc.uri.fsPath, range.start.line);
+    vscode.window.setStatusBarMessage(`$(bookmark) Eri arrivato qui: «${preview(it)}»`, 4000);
   });
 
   // ---- comandi del pannello ---------------------------------------------------------

@@ -116,6 +116,12 @@
         "icon": "$(go-to-file)"
       },
       {
+        "command": "evid.lastHighlight",
+        "title": "Vai all'ultima evidenziazione (dove ero arrivato)",
+        "category": "Evidenziatore",
+        "icon": "$(bookmark)"
+      },
+      {
         "command": "evid.tree.open",
         "title": "Apri",
         "category": "Evidenziatore"
@@ -223,6 +229,11 @@
           "command": "evid.showInPdf",
           "when": "editorLangId == latex",
           "group": "0_evid@5"
+        },
+        {
+          "command": "evid.lastHighlight",
+          "when": "editorLangId == latex",
+          "group": "0_evid@6"
         }
       ],
       "commandPalette": [
@@ -306,6 +317,11 @@
         }
       ],
       "view/title": [
+        {
+          "command": "evid.lastHighlight",
+          "when": "view == evid.lista",
+          "group": "navigation@0"
+        },
         {
           "command": "evid.tree.groupByColor",
           "when": "view == evid.lista && evid.treeGroup == colore",
