@@ -20,6 +20,8 @@ Alla prima apertura puoi sceglierlo come viewer predefinito dei PDF.
   azzera chiudendo VS Code.
 - **⌕ Cerca** (`Ctrl+F`): in tutto il PDF, senza badare ad accenti e maiuscole ("perche" trova
   "Perché"). `Invio` / `Maiusc+Invio` (o ▲▼, `F3`) per scorrere i risultati, `Esc` per chiudere.
+- **🔖 Dove ero** (tasto `U`): salta all'evidenziazione più in fondo nel documento, file inclusi
+  compresi. C'è anche nel pannello Evidenziazioni e nel menu del tasto destro del `.tex`.
 - Barra in alto: **⟳ Compila**, **☰ Riassunto**, **◻ PDF pulito**, **⇩ Importa**.
 
 Una selezione che "scappa" oltre le pagine dove hai premuto e lasciato il mouse (o supera i
